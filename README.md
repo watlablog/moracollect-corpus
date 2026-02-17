@@ -6,6 +6,8 @@ This repository currently implements the minimum Step 0-1 scope from `DESIGN.md`
 - Step 0: public web page on Firebase Hosting
 - Step 1: Google sign-in/sign-out with Firebase Auth
 
+Beginner tutorial (JP): `01-Tutorial-Step0-Step1.md`
+
 ## Tech stack (current)
 
 - Frontend: Vite + Vanilla TypeScript (`web/`)
@@ -35,6 +37,21 @@ Fill `.env.local` with your Firebase Web App config values:
 - `VITE_FIREBASE_PROJECT_ID`
 - `VITE_FIREBASE_APP_ID`
 - `VITE_FIREBASE_MEASUREMENT_ID` (optional)
+
+Where to find these values in Firebase Console:
+
+1. Project settings
+2. General
+3. Your apps (Web app)
+4. `firebaseConfig`
+
+Mapping:
+
+- `VITE_FIREBASE_API_KEY` <- `firebaseConfig.apiKey`
+- `VITE_FIREBASE_AUTH_DOMAIN` <- `firebaseConfig.authDomain`
+- `VITE_FIREBASE_PROJECT_ID` <- `firebaseConfig.projectId`
+- `VITE_FIREBASE_APP_ID` <- `firebaseConfig.appId`
+- `VITE_FIREBASE_MEASUREMENT_ID` <- `firebaseConfig.measurementId` (optional)
 
 ### 1-3. Configure Firebase project id for CLI
 
