@@ -1,0 +1,110 @@
+:root {
+  font-family: 'Hiragino Sans', 'Noto Sans JP', system-ui, sans-serif;
+  color: #1f2937;
+  background: #f3f5f9;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+.container {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 3rem 1rem;
+}
+
+h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.subtitle {
+  margin: 0.4rem 0 1.5rem;
+  color: #4b5563;
+}
+
+.card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 1.2rem;
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.06);
+}
+
+.status {
+  margin: 0;
+  font-weight: 600;
+}
+
+.user-info {
+  margin: 0.35rem 0 0;
+  min-height: 1.5rem;
+  color: #374151;
+}
+
+.error {
+  min-height: 1.5rem;
+  margin: 0.7rem 0 0;
+  color: #b91c1c;
+  font-size: 0.92rem;
+}
+
+.actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+button {
+  border-radius: 10px;
+  border: 1px solid transparent;
+  padding: 0.62rem 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  font-family: inherit;
+  color: #ffffff;
+  background: #2563eb;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.ghost {
+  color: #1f2937;
+  border-color: #d1d5db;
+  background: #ffffff;
+}
+
+button.ghost:hover:not(:disabled) {
+  background: #f9fafb;
+}
+
+@media (max-width: 520px) {
+  .container {
+    padding-top: 2rem;
+  }
+
+  .actions {
+    flex-direction: column;
+  }
+}
