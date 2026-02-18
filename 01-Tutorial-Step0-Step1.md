@@ -405,6 +405,11 @@ firebase deploy --only hosting
 - API 側でトークン検証して `uid` を返す
 - 未ログイン 401 / ログイン 200 の動作確認を行う
 
+Step2 の実装手順は次を参照:
+
+- `README.md` の `5. Step2: Authenticated API ping (/v1/ping)`
+- `api/README.md`
+
 ---
 
 ## 付録: まず読む順番

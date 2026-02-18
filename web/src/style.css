@@ -68,6 +68,29 @@ h1 {
   margin-top: 0.75rem;
 }
 
+.divider {
+  margin: 1.25rem 0;
+  border: 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.api-status {
+  margin: 0;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+
+.api-result {
+  margin: 0.6rem 0 0;
+  padding: 0.7rem;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  min-height: 2.4rem;
+  font-size: 0.86rem;
+  overflow-x: auto;
+}
+
 button {
   border-radius: 10px;
   border: 1px solid transparent;
