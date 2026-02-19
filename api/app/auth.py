@@ -6,7 +6,7 @@ from fastapi import Header, HTTPException, status
 from firebase_admin import auth, credentials
 
 
-def _initialize_firebase_admin() -> None:
+def initialize_firebase_admin() -> None:
     if firebase_admin._apps:
         return
 
@@ -37,7 +37,7 @@ def get_bearer_token(authorization: str | None) -> str:
 
 def verify_id_token(authorization: str | None = Header(default=None)) -> dict[str, Any]:
     token = get_bearer_token(authorization)
-    _initialize_firebase_admin()
+    initialize_firebase_admin()
 
     try:
         return auth.verify_id_token(token)
@@ -46,3 +46,13 @@ def verify_id_token(authorization: str | None = Header(default=None)) -> dict[st
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
         ) from exc
+
+
+def get_uid_from_token(decoded_token: dict[str, Any]) -> str:
+    uid = decoded_token.get("uid") or decoded_token.get("sub")
+    if not uid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+        )
+    return str(uid)

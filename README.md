@@ -1,12 +1,18 @@
 # MoraCollect
 
 MoraCollect is a corpus collection web app.
-This repository currently implements the minimum Step 0-1 scope from `DESIGN.md`:
+This repository currently implements Step 0-3 scope from `DESIGN.md`:
 
 - Step 0: public web page on Firebase Hosting
 - Step 1: Google sign-in/sign-out with Firebase Auth
+- Step 2: authenticated `/v1/ping` API check
+- Step 3: profile display name save/load via Firestore
 
-Beginner tutorial (JP): `01-Tutorial-Step0-Step1.md`
+Beginner tutorials (JP):
+
+- `01-Tutorial-Step0-Step1.md`
+- `02-Tutorial-Step2-API-Ping.md`
+- `03-Tutorial-Step3-Profile.md`
 
 ## Tech stack (current)
 
@@ -139,6 +145,55 @@ gcloud run deploy moracollect-api \
 After deployment, set `VITE_API_BASE_URL` in `web/.env.local` to the Cloud Run URL, then rebuild and redeploy hosting:
 
 ```bash
+cd web
+npm run build
+cd ..
+firebase deploy --only hosting
+```
+
+## 6. Step3: Profile display name (`/v1/profile`)
+
+### 6-1. New API endpoints
+
+- `GET /v1/profile` (auth required)
+- `POST /v1/profile` (auth required)
+  - request: `{"display_name":"..."}`
+  - validation: trim + 2 to 20 chars
+
+### 6-2. Firestore document
+
+- `users/{uid}`
+  - `display_name`
+  - `created_at` (first save only)
+  - `updated_at` (every save)
+  - `role` (`collector` default on first save)
+
+### 6-3. Web behavior
+
+- Signed-in users see a display name input and Save button
+- Save result is shown in UI (`Saved` or error message)
+- Reload keeps display name by loading `/v1/profile`
+
+### 6-4. Local checks
+
+```bash
+curl -i http://localhost:8080/v1/profile
+curl -i -X POST http://localhost:8080/v1/profile -H "Content-Type: application/json" -d '{"display_name":"Taro"}'
+```
+
+Expected without auth header:
+
+- both endpoints return `401`
+
+### 6-5. Deploy updates
+
+```bash
+gcloud run deploy moracollect-api \
+  --source api \
+  --region asia-northeast1 \
+  --allow-unauthenticated \
+  --set-env-vars FIREBASE_PROJECT_ID=moracollect-watlab
+
 cd web
 npm run build
 cd ..
