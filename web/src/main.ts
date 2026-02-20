@@ -2,6 +2,7 @@ import type { Auth, User } from 'firebase/auth'
 import './style.css'
 import { fetchPing } from './api'
 import {
+  completeRedirectSignIn,
   signInWithGoogle,
   signOutFromApp,
   subscribeAuthState,
@@ -88,6 +89,12 @@ function getAuthErrorMessage(error: unknown): string {
     }
     if (code.includes('popup-closed-by-user')) {
       return 'Sign-in popup was closed before completion.'
+    }
+    if (code.includes('missing-initial-state')) {
+      return 'Sign-in session expired. Please try again.'
+    }
+    if (code.includes('redirect-cancelled-by-user')) {
+      return 'Sign-in was cancelled before completion.'
     }
     return `Authentication failed: ${code}`
   }
@@ -196,6 +203,11 @@ try {
 }
 
 if (auth) {
+  void completeRedirectSignIn(auth).catch((error) => {
+    errorEl.textContent = getAuthErrorMessage(error)
+    console.error(error)
+  })
+
   subscribeAuthState(auth, (user) => {
     currentUser = user
     renderUser(user)

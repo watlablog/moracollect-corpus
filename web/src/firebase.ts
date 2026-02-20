@@ -11,14 +11,29 @@ function requiredEnv(key: string): string {
   return value
 }
 
+function resolveAuthDomain(configuredAuthDomain: string): string {
+  if (typeof window === 'undefined') {
+    return configuredAuthDomain
+  }
+
+  const host = window.location.hostname
+  if (host.endsWith('.web.app') || host.endsWith('.firebaseapp.com')) {
+    return host
+  }
+
+  return configuredAuthDomain
+}
+
 export function initializeFirebaseAuth(): Auth {
   if (authInstance) {
     return authInstance
   }
 
+  const configuredAuthDomain = requiredEnv('VITE_FIREBASE_AUTH_DOMAIN')
+
   const app = initializeApp({
     apiKey: requiredEnv('VITE_FIREBASE_API_KEY'),
-    authDomain: requiredEnv('VITE_FIREBASE_AUTH_DOMAIN'),
+    authDomain: resolveAuthDomain(configuredAuthDomain),
     projectId: requiredEnv('VITE_FIREBASE_PROJECT_ID'),
     appId: requiredEnv('VITE_FIREBASE_APP_ID'),
     measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || undefined,
