@@ -215,11 +215,13 @@ firebase deploy --only hosting
   - Record again
 - Validation:
   - under 1 second -> error (`too short`)
-  - 1 to 5 seconds -> valid
+  - 1 second or longer -> valid (auto-stop around 5 seconds)
 - Waveform:
   - Drawn only after recording is completed (no realtime drawing)
   - Raw time-domain signal is shown on canvas
   - x-axis labels are shown every 1 second
+  - Draw density targets about 5kHz (points = round(durationSec * 5000))
+  - Point count is clamped for stability (`4000` to `30000`)
   - Browser memory only (not uploaded/saved)
 
 ### 7-2. Important note for mobile

@@ -26,8 +26,9 @@ import {
 const MIN_DISPLAY_NAME_LENGTH = 2
 const MAX_DISPLAY_NAME_LENGTH = 20
 const MAX_RECORDING_SECONDS = Math.round(MAX_RECORDING_MS / 1000)
-const MIN_WAVEFORM_POINTS = 240
-const FALLBACK_WAVEFORM_POINTS = 320
+const TARGET_DRAW_HZ = 5000
+const MIN_DRAW_POINTS = 4000
+const MAX_DRAW_POINTS = 30000
 
 function mustGetElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -35,6 +36,10 @@ function mustGetElement<T extends Element>(selector: string): T {
     throw new Error(`Missing required element: ${selector}`)
   }
   return element
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value))
 }
 
 const app = mustGetElement<HTMLDivElement>('#app')
@@ -223,14 +228,9 @@ function clearWaveformView(statusText: string): void {
 
 async function renderWaveformFromBlob(blob: Blob): Promise<void> {
   const decoded = await decodeAudioBlob(blob)
-  const canvasWidth =
-    waveformCanvasEl.clientWidth > 0
-      ? waveformCanvasEl.clientWidth
-      : waveformCanvasEl.width
-  const points = Math.max(
-    MIN_WAVEFORM_POINTS,
-    Math.floor(canvasWidth || FALLBACK_WAVEFORM_POINTS),
-  )
+  const pointsRaw = Math.round(decoded.durationSec * TARGET_DRAW_HZ)
+  const pointsByDuration = clamp(pointsRaw, MIN_DRAW_POINTS, MAX_DRAW_POINTS)
+  const points = Math.min(pointsByDuration, decoded.samples.length)
   const line = toWaveformLine(decoded.samples, points)
   drawWaveform(waveformCanvasEl, line, decoded.durationSec, 1)
   waveformCanvasEl.hidden = false
