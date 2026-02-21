@@ -1,18 +1,20 @@
 # MoraCollect
 
 MoraCollect is a corpus collection web app.
-This repository currently implements Step 0-3 scope from `DESIGN.md`:
+This repository currently implements Step 0-4 scope from `DESIGN.md`:
 
 - Step 0: public web page on Firebase Hosting
 - Step 1: Google sign-in/sign-out with Firebase Auth
 - Step 2: authenticated `/v1/ping` API check
 - Step 3: profile display name save/load via Firestore
+- Step 4: browser recording UI (record/stop/playback only, no upload yet)
 
 Beginner tutorials (JP):
 
 - `01-Tutorial-Step0-Step1.md`
 - `02-Tutorial-Step2-API-Ping.md`
 - `03-Tutorial-Step3-Profile.md`
+- `04-Tutorial-Step4-Recording-Only.md`
 
 ## Tech stack (current)
 
@@ -199,3 +201,53 @@ npm run build
 cd ..
 firebase deploy --only hosting
 ```
+
+## 7. Step4: Recording UI (no upload)
+
+### 7-1. Behavior
+
+- Signed-in users can:
+  - Start recording
+  - Stop manually
+  - Auto-stop at 5 seconds
+  - Playback recorded audio in browser
+  - Show raw waveform with 1-second time axis after recording
+  - Record again
+- Validation:
+  - under 1 second -> error (`too short`)
+  - 1 to 5 seconds -> valid
+- Waveform:
+  - Drawn only after recording is completed (no realtime drawing)
+  - Raw time-domain signal is shown on canvas
+  - x-axis labels are shown every 1 second
+  - Browser memory only (not uploaded/saved)
+
+### 7-2. Important note for mobile
+
+- Use HTTPS page (`https://<project-id>.web.app`) on iPhone/Android
+- Microphone access is blocked on insecure origins in many mobile browsers
+
+### 7-3. Local check
+
+```bash
+cd web
+npm run dev
+```
+
+After sign-in, verify:
+
+- `Start recording` starts microphone capture
+- `Stop` ends capture and shows audio player
+- After successful stop, waveform appears under recording controls
+- If you do not stop, recording auto-stops at 5 seconds
+- `Record again` allows repeated recordings
+- Recorded duration may be slightly under/over 5.0s due to browser timer and encoder frame boundaries
+
+### 7-4. Known errors
+
+- Permission denied:
+  - Browser/site microphone permission is off
+- Not supported:
+  - Browser does not provide MediaRecorder
+- Too short:
+  - Stopped before 1 second
