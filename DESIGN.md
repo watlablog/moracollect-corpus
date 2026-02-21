@@ -9,6 +9,17 @@
 
 > 強制アライメント（pydomino）や最終的な耳チェックは別工程とし、このWebアプリは「収集・整理・可視化（進捗/ランキング）」に集中します。
 
+### 0.1 現在地（2026-02-21時点）
+- Step0〜Step5 は完了
+  - Step0: Hosting公開
+  - Step1: Firebase Auth（Google）ログイン
+  - Step2: 認証付き `/v1/ping`
+  - Step3: 表示名プロフィール（`/v1/profile`）
+  - Step4: 録音UI（録音/停止/再生 + 波形）
+  - Step5: 署名付きURLアップロード（`/v1/upload-url`）
+- 実装済み要素: Auth / Profile / Recording / Waveform / Upload
+- 次アクション: **Step6（register / my-records）**
+
 ---
 
 ## 1. スコープ
@@ -140,14 +151,16 @@ moracollect-corpus/
 ### 5.4 records（1発話=1レコード）
 `records/{record_id}`
 - `uid`: string
-- `prompt_id`: string
-- `script_id`: string（promptから冗長に持ってOK）
-- `take_index`: number（同promptの何回目か）
-- `raw_path`: string（gs://... または bucket/path）
-- `wav_path`: string
-- `created_at`
+- `record_id`: string（doc id と同値）
+- `prompt_id`: string（Step6固定値: `"step5-free-prompt"`）
+- `script_id`: string（Step6固定値: `"step5-free-script"`）
+- `raw_path`: string（`raw/{uid}/{record_id}.{ext}`）
+- `wav_path`: string（Step6では空文字）
+- `created_at`: timestamp
+- `updated_at`: timestamp
 - `status`: `"uploaded" | "processing" | "processed" | "failed"`
-- `client`: object（ua/os/browser/device_hint）
+- `client`: object（ua/os/browser/device_hint など最小メタ）
+- `recording`: object（mime_type/size_bytes/duration_ms）
 - `qc`: object
   - `duration_sec`
   - `rms_db`（簡易）
@@ -156,7 +169,24 @@ moracollect-corpus/
   - `ok`: bool
   - `notes`: string（任意）
 
-### 5.5 集計（進捗）
+> `qc` は主に Step8 で更新。Step6時点では未設定でもよい。
+
+### 5.5 users配下の履歴ミラー（Step6）
+`users/{uid}/records/{record_id}`
+- `record_id`: string
+- `status`: `"uploaded" | "processing" | "processed" | "failed"`
+- `raw_path`: string
+- `script_id`: string
+- `prompt_id`: string
+- `mime_type`: string
+- `size_bytes`: number
+- `duration_ms`: number
+- `created_at`: timestamp
+
+> 役割: `GET /v1/my-records` を軽く実装するための表示用ミラー。  
+> 正本は `records/{record_id}`。
+
+### 5.6 集計（進捗）
 `stats/scripts/{script_id}`
 - `total_records`: number
 - `unique_speakers`: number
@@ -168,7 +198,7 @@ moracollect-corpus/
 - `monthly_records/{YYYY-MM}`: number
 - `last_updated`
 
-### 5.6 ランキング表示用（スナップショット）
+### 5.7 ランキング表示用（スナップショット）
 `leaderboards/{period}/ranks/{uid}`
 - `display_name`
 - `count`
@@ -202,11 +232,11 @@ moracollect-corpus/
 - `GET /v1/prompts?script_id=...`  
   - 収録用プロンプト一覧
 - `POST /v1/upload-url`  
-  - body: `{prompt_id, ext}`  
+  - body: `{ext, content_type}`  
   - return: `{record_id, upload_url, raw_path, required_headers}`
 - `POST /v1/register`  
-  - body: `{record_id, prompt_id, raw_path, client_meta}`
-- `GET /v1/my-records?limit=...&cursor=...`  
+  - body: `{record_id, raw_path, client_meta, recording_meta}`
+- `GET /v1/my-records?limit=...`  
   - 自分の収録履歴
 
 #### Profile
@@ -228,6 +258,39 @@ moracollect-corpus/
 ### 7.3 署名付きURLの方針
 - アップロード: Signed URL（PUT）
 - ダウンロード: Signed URL（GET）※管理者だけ or 収録者本人だけ
+
+### 7.4 Step6で固定するインターフェース（決定版）
+#### `POST /v1/register`（auth required）
+- Request
+  - `record_id`: UUID文字列（必須）
+  - `raw_path`: `raw/{uid}/{record_id}.{ext}`（必須）
+  - `client_meta`: object（任意）
+  - `recording_meta`: object（任意）
+    - `mime_type`, `size_bytes`, `duration_ms`
+- Response（成功）
+  - `ok: true`
+  - `record_id`
+  - `status: "uploaded"`
+  - `already_registered: boolean`
+- Error
+  - `401`: auth invalid
+  - `400`: invalid record_id / invalid raw_path / uid mismatch
+  - `404`: raw object not found
+  - `409`: record_id already owned by different uid
+
+#### `GET /v1/my-records?limit=...`（auth required）
+- Response
+  - `ok: true`
+  - `records: []`（自分の履歴のみ）
+  - 各要素: `record_id/status/script_id/prompt_id/raw_path/mime_type/size_bytes/duration_ms/created_at`
+- limit
+  - 既定: `20`
+  - 上限: `50`
+
+#### Step6固定値（Step7で差し替え）
+- `script_id = "step5-free-script"`
+- `prompt_id = "step5-free-prompt"`
+- 上記は Step6 で records に保存し、Step7で prompts/scripts 導線へ置換する
 
 ---
 
@@ -391,15 +454,63 @@ moracollect-corpus/
 
 ### Step 6: register（メタデータ登録）で records を増やす
 **実装**
-- `/v1/register` で `records/{record_id}` 作成
+- Upload成功直後に Web から `POST /v1/register` を**自動実行**
+- `records/{record_id}` を作成（status=`uploaded`）
+- `users/{uid}/records/{record_id}` の表示用ミラーを作成
+- `GET /v1/my-records` で自分の履歴を返す
+- register失敗時は Web 側で `Retry register` を出す
+
+**Step6の境界（In/Out）**
+- In
+  - register
+  - my-records
+  - Web自動register
+  - retry
+- Out
+  - prompts/scripts UI（Step7）
+  - raw→wav/QC（Step8）
+  - 既存rawのbackfillツール
+
+**データフロー（Step6）**
+```mermaid
+flowchart LR
+  U[User] --> W[Web]
+  W -->|Upload success| R[POST /v1/register]
+  R --> C{Result}
+  C -->|200| F[Write records and users uid mirror]
+  F --> M[GET /v1/my-records]
+  M --> W
+  C -->|4xx/5xx| E[Show error + Retry register]
+  E --> R
+```
+
+**Step6で固定するAPI仕様**
+- `POST /v1/register`（auth required）
+  - Request: `record_id`(UUID), `raw_path`, `client_meta`, `recording_meta`
+  - `raw_path` は `raw/{uid}/{record_id}.{ext}` 形式を強制
+  - Storageに対象オブジェクトが存在することを確認
+  - 成功: `ok=true`, `status="uploaded"`, `already_registered`
+  - エラー:
+    - `401` auth invalid
+    - `400` invalid record_id/raw_path/uid mismatch
+    - `404` raw object not found
+    - `409` record_id already owned by different uid
+- `GET /v1/my-records?limit=...`（auth required）
+  - 自分の履歴のみ返却
+  - デフォルト20件、上限50件
+  - 新しい順で返す
 
 **テスト**
 - Firestoreに records が増える
 - status が uploaded
 - 自分の履歴 `GET /v1/my-records` が見れる
+- Upload後に自動registerが走る
+- register失敗時にRetryで復旧できる
 
 **合格条件**
 - 音声が「管理可能な形」で貯まる
+- 他人UIDのパスではregisterできない
+- エラー規約（401/400/404/409）が守られる
 
 ---
 
@@ -470,6 +581,15 @@ moracollect-corpus/
 - script別の「話者数」「データ数」が見える
 - ランキングが表示できる（累計、必要なら週/月も）
 
+### 12.1 Step6 詳細DoD（先行確定）
+- Upload後に `POST /v1/register` で records が作成される
+- `GET /v1/my-records` で自分の履歴のみ表示される
+- `status="uploaded"` で保存される
+- 未認証は `401`
+- 不正 `record_id/raw_path/uid mismatch` は `400`
+- raw未存在は `404`
+- 他人UIDで同一 `record_id` 競合は `409`
+
 ---
 
 ## 13. 初回公開での安全対策（必須）
@@ -496,3 +616,12 @@ moracollect-corpus/
 - **record**: 1発話=1ファイルの単位
 - **script**: 読み上げスクリプト（複数promptの集合）
 - **prompt**: 読み上げるテキスト（最小単位）
+
+---
+
+## 16. Step6での前提（Assumptions / Defaults）
+- 対象プロジェクト: `moracollect-watlab`
+- Step6では既存rawのbackfillは実施しない
+- Upload成功後のregisterはWeb側で自動実行
+- Storage実在チェックはregister時に実施
+- recordsの正本は `records/{record_id}`
