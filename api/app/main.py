@@ -1,4 +1,6 @@
 import os
+import logging
+from uuid import uuid4
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, status
@@ -13,15 +15,25 @@ from app.models import (
     ProfileGetResponse,
     ProfilePostRequest,
     ProfilePostResponse,
+    UploadUrlRequest,
+    UploadUrlResponse,
 )
+from app.storage import build_raw_object_path, generate_upload_signed_url
 
 load_dotenv()
 
-app = FastAPI(title="MoraCollect API", version="0.2.0")
+app = FastAPI(title="MoraCollect API", version="0.3.0")
+logger = logging.getLogger("moracollect.api")
 
 PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", "moracollect-watlab")
+STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "").strip()
 MIN_DISPLAY_NAME_LENGTH = 2
 MAX_DISPLAY_NAME_LENGTH = 20
+UPLOAD_URL_EXPIRES_SEC = 600
+ALLOWED_UPLOAD_CONTENT_TYPES = {
+    "webm": "audio/webm",
+    "mp4": "audio/mp4",
+}
 
 allowed_origins = [
     "http://localhost:5173",
@@ -65,6 +77,28 @@ def normalize_display_name(display_name: str) -> str:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"display_name must be at most {MAX_DISPLAY_NAME_LENGTH} characters",
+        )
+    return normalized
+
+
+def normalize_upload_ext(ext: str) -> str:
+    normalized = ext.strip().lower().lstrip(".")
+    if normalized not in ALLOWED_UPLOAD_CONTENT_TYPES:
+        allowed_exts = ", ".join(sorted(ALLOWED_UPLOAD_CONTENT_TYPES))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"ext must be one of: {allowed_exts}",
+        )
+    return normalized
+
+
+def normalize_upload_content_type(content_type: str) -> str:
+    normalized = content_type.split(";")[0].strip().lower()
+    if normalized not in ALLOWED_UPLOAD_CONTENT_TYPES.values():
+        allowed_types = ", ".join(sorted(set(ALLOWED_UPLOAD_CONTENT_TYPES.values())))
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"content_type must be one of: {allowed_types}",
         )
     return normalized
 
@@ -139,3 +173,59 @@ def post_profile(
         ) from exc
 
     return ProfilePostResponse(ok=True, uid=uid, display_name=display_name)
+
+
+@app.post("/v1/upload-url", response_model=UploadUrlResponse)
+def post_upload_url(
+    payload: UploadUrlRequest,
+    decoded_token: dict = Depends(verify_id_token),
+) -> UploadUrlResponse:
+    if not STORAGE_BUCKET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Storage bucket is not configured",
+        )
+
+    uid = get_uid_from_token(decoded_token)
+    ext = normalize_upload_ext(payload.ext)
+    content_type = normalize_upload_content_type(payload.content_type)
+    expected_content_type = ALLOWED_UPLOAD_CONTENT_TYPES[ext]
+    if content_type != expected_content_type:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"content_type must be {expected_content_type} when ext is {ext}",
+        )
+
+    record_id = str(uuid4())
+    raw_path = build_raw_object_path(uid=uid, record_id=record_id, ext=ext)
+
+    try:
+        upload_url = generate_upload_signed_url(
+            bucket_name=STORAGE_BUCKET,
+            object_path=raw_path,
+            content_type=content_type,
+            expires_sec=UPLOAD_URL_EXPIRES_SEC,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Failed to generate upload URL: uid=%s bucket=%s raw_path=%s error_type=%s error=%s",
+            uid,
+            STORAGE_BUCKET,
+            raw_path,
+            type(exc).__name__,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate upload URL",
+        ) from exc
+
+    return UploadUrlResponse(
+        ok=True,
+        record_id=record_id,
+        raw_path=raw_path,
+        upload_url=upload_url,
+        method="PUT",
+        required_headers={"Content-Type": content_type},
+        expires_in_sec=UPLOAD_URL_EXPIRES_SEC,
+    )

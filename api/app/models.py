@@ -27,3 +27,18 @@ class ProfilePostResponse(BaseModel):
     ok: bool
     uid: str
     display_name: str
+
+
+class UploadUrlRequest(BaseModel):
+    ext: str
+    content_type: str
+
+
+class UploadUrlResponse(BaseModel):
+    ok: bool
+    record_id: str
+    raw_path: str
+    upload_url: str
+    method: str
+    required_headers: dict[str, str]
+    expires_in_sec: int

@@ -1,0 +1,12 @@
+.gcloudignore
+.git
+.gitignore
+
+# Python virtual env and caches
+.venv/
+__pycache__/
+*.pyc
+
+# Local env files
+.env
+.env.*

@@ -20,18 +20,15 @@ export function subscribeAuthState(
   return onAuthStateChanged(auth, callback)
 }
 
-function shouldUseRedirectSignIn(): boolean {
-  if (typeof navigator === 'undefined') {
+function canFallbackToRedirect(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
     return false
   }
-
-  const ua = navigator.userAgent
-  const isIPhoneOrIPad = /iPhone|iPad|iPod/i.test(ua)
-  const isIPadOSDesktopUa =
-    /Macintosh/i.test(ua) && typeof navigator.maxTouchPoints === 'number' && navigator.maxTouchPoints > 1
-  const isAndroid = /Android/i.test(ua)
-
-  return isIPhoneOrIPad || isIPadOSDesktopUa || isAndroid
+  const code = String((error as { code?: unknown }).code || '')
+  return (
+    code.includes('popup-blocked') ||
+    code.includes('operation-not-supported-in-this-environment')
+  )
 }
 
 export async function completeRedirectSignIn(auth: Auth): Promise<void> {
@@ -39,12 +36,17 @@ export async function completeRedirectSignIn(auth: Auth): Promise<void> {
 }
 
 export async function signInWithGoogle(auth: Auth): Promise<void> {
-  if (shouldUseRedirectSignIn()) {
-    await signInWithRedirect(auth, googleProvider)
+  try {
+    await signInWithPopup(auth, googleProvider)
     return
-  }
+  } catch (error) {
+    if (!canFallbackToRedirect(error)) {
+      throw error
+    }
 
-  await signInWithPopup(auth, googleProvider)
+    // Fallback for environments where popup cannot be used.
+    await signInWithRedirect(auth, googleProvider)
+  }
 }
 
 export async function signOutFromApp(auth: Auth): Promise<void> {

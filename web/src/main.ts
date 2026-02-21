@@ -22,6 +22,7 @@ import {
   drawWaveform,
   toWaveformLine,
 } from './waveform'
+import { requestUploadUrl, uploadRawBlob } from './upload'
 
 const MIN_DISPLAY_NAME_LENGTH = 2
 const MAX_DISPLAY_NAME_LENGTH = 20
@@ -29,6 +30,7 @@ const MAX_RECORDING_SECONDS = Math.round(MAX_RECORDING_MS / 1000)
 const TARGET_DRAW_HZ = 5000
 const MIN_DRAW_POINTS = 4000
 const MAX_DRAW_POINTS = 30000
+const REDIRECT_RECOVERY_SESSION_KEY = 'moracollect.auth.redirect-recovery'
 
 function mustGetElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -40,6 +42,21 @@ function mustGetElement<T extends Element>(selector: string): T {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function isIos(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+  const ua = navigator.userAgent
+  return /iPhone|iPad|iPod/i.test(ua)
+}
+
+function isIosChrome(): boolean {
+  if (typeof navigator === 'undefined') {
+    return false
+  }
+  return /CriOS/i.test(navigator.userAgent)
 }
 
 const app = mustGetElement<HTMLDivElement>('#app')
@@ -70,7 +87,7 @@ app.innerHTML = `
       <hr class="divider" />
 
       <section class="recording-block">
-        <p class="recording-heading">Step4: Recording (local preview only)</p>
+        <p class="recording-heading">Step4-5: Recording and upload</p>
         <p id="recording-status" class="recording-status">Recording status: waiting for sign-in</p>
         <p id="recording-timer" class="recording-timer">Time left: ${MAX_RECORDING_SECONDS}s</p>
         <div class="recording-actions">
@@ -81,6 +98,11 @@ app.innerHTML = `
         <p id="waveform-status" class="waveform-status">Waveform: waiting for recording</p>
         <canvas id="waveform-canvas" class="waveform-canvas" width="640" height="112" hidden></canvas>
         <audio id="recording-preview" class="recording-preview" controls hidden></audio>
+        <div class="upload-actions">
+          <button id="upload-recording" type="button">Upload</button>
+        </div>
+        <p id="upload-status" class="upload-status">Upload status: waiting for sign-in</p>
+        <p id="upload-path" class="upload-path"></p>
       </section>
 
       <hr class="divider" />
@@ -109,6 +131,10 @@ const recordingResetButton =
 const waveformStatusEl = mustGetElement<HTMLElement>('#waveform-status')
 const waveformCanvasEl = mustGetElement<HTMLCanvasElement>('#waveform-canvas')
 const recordingPreviewEl = mustGetElement<HTMLAudioElement>('#recording-preview')
+const uploadRecordingButton =
+  mustGetElement<HTMLButtonElement>('#upload-recording')
+const uploadStatusEl = mustGetElement<HTMLElement>('#upload-status')
+const uploadPathEl = mustGetElement<HTMLElement>('#upload-path')
 const apiStatusEl = mustGetElement<HTMLElement>('#api-status')
 const apiResultEl = mustGetElement<HTMLElement>('#api-result')
 
@@ -116,6 +142,9 @@ let currentUser: User | null = null
 const recorder = new BrowserRecorder()
 let recordingObjectUrl: string | null = null
 let recordingCountdownTimer: number | null = null
+let lastRecordingBlob: Blob | null = null
+let lastRecordingMimeType: string | null = null
+let uploadInProgress = false
 
 function renderUser(user: User | null): void {
   if (user) {
@@ -153,6 +182,37 @@ function getAuthErrorMessage(error: unknown): string {
   return 'Authentication failed due to an unexpected error.'
 }
 
+function isMissingInitialStateError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('code' in error)) {
+    return false
+  }
+  const code = String((error as { code?: unknown }).code || '')
+  return code.includes('missing-initial-state')
+}
+
+function recoverRedirectSessionIfNeeded(error: unknown): boolean {
+  if (!isMissingInitialStateError(error)) {
+    return false
+  }
+
+  try {
+    const hasRetried =
+      window.sessionStorage.getItem(REDIRECT_RECOVERY_SESSION_KEY) === '1'
+    if (hasRetried) {
+      window.sessionStorage.removeItem(REDIRECT_RECOVERY_SESSION_KEY)
+      return false
+    }
+
+    window.sessionStorage.setItem(REDIRECT_RECOVERY_SESSION_KEY, '1')
+  } catch {
+    return false
+  }
+
+  statusEl.textContent = 'Recovering sign-in session...'
+  window.location.reload()
+  return true
+}
+
 function getApiErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message
@@ -178,6 +238,41 @@ function validateDisplayName(rawValue: string): string {
 function setProfileControlsDisabled(disabled: boolean): void {
   displayNameInput.disabled = disabled
   saveProfileButton.disabled = disabled
+}
+
+function getUploadTargetFromMimeType(
+  mimeType: string,
+): { ext: 'webm' | 'mp4'; contentType: 'audio/webm' | 'audio/mp4' } {
+  const normalized = mimeType.toLowerCase()
+  if (normalized.includes('webm')) {
+    return { ext: 'webm', contentType: 'audio/webm' }
+  }
+  if (normalized.includes('mp4')) {
+    return { ext: 'mp4', contentType: 'audio/mp4' }
+  }
+  throw new Error(`Unsupported recording format: ${mimeType}`)
+}
+
+function updateUploadButtonState(): void {
+  uploadRecordingButton.disabled =
+    !currentUser ||
+    !lastRecordingBlob ||
+    !lastRecordingMimeType ||
+    recorder.getState() === 'recording' ||
+    uploadInProgress
+}
+
+function resetUploadState(statusText: string): void {
+  uploadInProgress = false
+  uploadStatusEl.textContent = statusText
+  uploadPathEl.textContent = ''
+  updateUploadButtonState()
+}
+
+function clearRecordedUploadSource(statusText: string): void {
+  lastRecordingBlob = null
+  lastRecordingMimeType = null
+  resetUploadState(statusText)
 }
 
 function stopRecordingCountdown(): void {
@@ -242,6 +337,7 @@ function setRecordingButtonsState(): void {
     recordingStartButton.disabled = true
     recordingStopButton.disabled = true
     recordingResetButton.disabled = true
+    updateUploadButtonState()
     return
   }
 
@@ -250,6 +346,7 @@ function setRecordingButtonsState(): void {
   recordingStopButton.disabled = state !== 'recording'
   recordingResetButton.disabled =
     !(state === 'recorded' || state === 'error')
+  updateUploadButtonState()
 }
 
 function isRecorderError(error: unknown): error is RecorderError {
@@ -266,6 +363,12 @@ function getRecorderErrorMessageByCode(code: RecorderErrorCode): string {
     return 'This browser does not support audio recording.'
   }
   if (code === 'permission-denied') {
+    if (isIosChrome()) {
+      return 'Microphone permission was denied in iPhone Chrome. Open iPhone Settings > Chrome > Microphone and enable it, then reload this page.'
+    }
+    if (isIos()) {
+      return 'Microphone permission was denied. Open iPhone browser settings and allow microphone access, then reload this page.'
+    }
     return 'Microphone permission was denied. Please allow microphone access and try again.'
   }
   if (code === 'device-not-found') {
@@ -279,6 +382,8 @@ function getRecorderErrorMessageByCode(code: RecorderErrorCode): string {
 
 function showRecordedAudio(result: RecordingResult): void {
   releaseRecordingObjectUrl()
+  lastRecordingBlob = result.blob
+  lastRecordingMimeType = result.mimeType
   recordingObjectUrl = URL.createObjectURL(result.blob)
   recordingPreviewEl.src = recordingObjectUrl
   recordingPreviewEl.hidden = false
@@ -286,11 +391,13 @@ function showRecordedAudio(result: RecordingResult): void {
   const durationSec = (result.durationMs / 1000).toFixed(1)
   recordingStatusEl.textContent = `Recording status: recorded (${durationSec}s)`
   recordingTimerEl.textContent = 'Time left: 0s'
+  resetUploadState('Upload status: ready')
 }
 
 function setRecordingIdleState(): void {
   recorder.reset()
   releaseRecordingObjectUrl()
+  clearRecordedUploadSource('Upload status: waiting for recording')
   clearWaveformView('Waveform: waiting for recording')
   stopRecordingCountdown()
   recordingStatusEl.textContent = 'Recording status: idle'
@@ -310,6 +417,7 @@ async function setRecordingSignedOutState(): Promise<void> {
 
   recorder.reset()
   releaseRecordingObjectUrl()
+  clearRecordedUploadSource('Upload status: waiting for sign-in')
   clearWaveformView('Waveform: waiting for sign-in')
   recordingStatusEl.textContent = 'Recording status: waiting for sign-in'
   updateRecordingTimer()
@@ -414,6 +522,7 @@ async function handleStartRecording(): Promise<void> {
       : 'Failed to record audio.'
     recordingStatusEl.textContent = `Recording status: error (${message})`
     releaseRecordingObjectUrl()
+    clearRecordedUploadSource('Upload status: waiting for recording')
     clearWaveformView('Waveform: waiting for recording')
   } finally {
     updateRecordingTimer()
@@ -449,6 +558,47 @@ function handleResetRecording(): void {
   setRecordingIdleState()
 }
 
+async function handleUploadRecording(): Promise<void> {
+  if (!currentUser) {
+    uploadStatusEl.textContent = 'Upload status: sign in first'
+    updateUploadButtonState()
+    return
+  }
+  if (!lastRecordingBlob || !lastRecordingMimeType) {
+    uploadStatusEl.textContent = 'Upload status: record audio first'
+    updateUploadButtonState()
+    return
+  }
+
+  uploadInProgress = true
+  uploadStatusEl.textContent = 'Upload status: requesting signed URL ...'
+  uploadPathEl.textContent = ''
+  updateUploadButtonState()
+
+  try {
+    const { ext, contentType } = getUploadTargetFromMimeType(lastRecordingMimeType)
+    const idToken = await currentUser.getIdToken()
+    const uploadPlan = await requestUploadUrl(idToken, ext, contentType)
+    if (uploadPlan.method !== 'PUT') {
+      throw new Error(`Unexpected upload method: ${uploadPlan.method}`)
+    }
+
+    uploadStatusEl.textContent = 'Upload status: uploading ...'
+    await uploadRawBlob(
+      uploadPlan.upload_url,
+      lastRecordingBlob,
+      uploadPlan.required_headers,
+    )
+    uploadStatusEl.textContent = 'Upload status: uploaded'
+    uploadPathEl.textContent = `Saved to: ${uploadPlan.raw_path}`
+  } catch (error) {
+    uploadStatusEl.textContent = `Upload status: failed (${getApiErrorMessage(error)})`
+  } finally {
+    uploadInProgress = false
+    updateUploadButtonState()
+  }
+}
+
 let auth: Auth | null = null
 try {
   auth = initializeFirebaseAuth()
@@ -466,17 +616,29 @@ try {
   recordingStartButton.disabled = true
   recordingStopButton.disabled = true
   recordingResetButton.disabled = true
+  uploadRecordingButton.disabled = true
+  uploadStatusEl.textContent = 'Upload status: disabled (Firebase init failed)'
+  uploadPathEl.textContent = ''
   apiStatusEl.textContent = 'API status: disabled'
   apiResultEl.textContent = 'Firebase init failed. Configure web/.env.local first.'
 }
 
 if (auth) {
   void completeRedirectSignIn(auth).catch((error) => {
+    if (recoverRedirectSessionIfNeeded(error)) {
+      return
+    }
     errorEl.textContent = getAuthErrorMessage(error)
     console.error(error)
   })
 
   subscribeAuthState(auth, (user) => {
+    try {
+      window.sessionStorage.removeItem(REDIRECT_RECOVERY_SESSION_KEY)
+    } catch {
+      // Ignore if sessionStorage is unavailable.
+    }
+
     currentUser = user
     renderUser(user)
 
@@ -536,5 +698,9 @@ if (auth) {
 
   recordingResetButton.addEventListener('click', () => {
     handleResetRecording()
+  })
+
+  uploadRecordingButton.addEventListener('click', async () => {
+    await handleUploadRecording()
   })
 }

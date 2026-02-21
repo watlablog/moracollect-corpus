@@ -155,6 +155,24 @@ h1 {
   width: 100%;
 }
 
+.upload-actions {
+  margin-top: 0.8rem;
+}
+
+.upload-status {
+  min-height: 1.4rem;
+  margin: 0.55rem 0 0;
+  font-size: 0.9rem;
+  color: #065f46;
+}
+
+.upload-path {
+  margin: 0.35rem 0 0;
+  font-size: 0.84rem;
+  color: #1f2937;
+  word-break: break-all;
+}
+
 .divider {
   margin: 1.25rem 0;
   border: 0;
