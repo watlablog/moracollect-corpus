@@ -1,7 +1,7 @@
 # MoraCollect
 
 MoraCollect is a corpus collection web app.
-This repository currently implements Step 0-5 scope from `DESIGN.md`:
+This repository currently implements Step 0-6 scope from `DESIGN.md`:
 
 - Step 0: public web page on Firebase Hosting
 - Step 1: Google sign-in/sign-out with Firebase Auth
@@ -9,6 +9,7 @@ This repository currently implements Step 0-5 scope from `DESIGN.md`:
 - Step 3: profile display name save/load via Firestore
 - Step 4: browser recording UI (record/stop/playback + waveform)
 - Step 5: signed URL issue + manual upload to Cloud Storage
+- Step 6: register metadata (`/v1/register`) + my records (`/v1/my-records`)
 
 Beginner tutorials (JP):
 
@@ -17,6 +18,7 @@ Beginner tutorials (JP):
 - `03-Tutorial-Step3-Profile.md`
 - `04-Tutorial-Step4-Recording-Only.md`
 - `05-Tutorial-Step5-Upload-URL.md`
+- `06-Tutorial-Step6-Register-Records.md`
 
 ## Tech stack (current)
 
@@ -321,3 +323,62 @@ If upload fails with CORS errors in browser console, configure bucket CORS to al
   - desktop Chrome often `webm`
   - iPhone browsers often `mp4`
   - This is expected in Step5 (raw storage stage).
+
+## 9. Step6: Register metadata + My records
+
+### 9-1. New API endpoints
+
+- `POST /v1/register` (auth required)
+  - request:
+    - `record_id` (UUID)
+    - `raw_path` (`raw/<uid>/<record_id>.<ext>`)
+    - `client_meta` (optional object)
+    - `recording_meta` (optional object: `mime_type`, `size_bytes`, `duration_ms`)
+  - response: `record_id`, `status`, `already_registered`
+  - validation/errors:
+    - `401` auth invalid
+    - `400` invalid `record_id` / `raw_path` / uid mismatch
+    - `404` raw object not found in Storage
+    - `409` `record_id` is already owned by different uid
+
+- `GET /v1/my-records?limit=...` (auth required)
+  - returns only the signed-in user records
+  - `limit` default `20`, max `50`
+
+### 9-2. Firestore writes
+
+- Canonical record:
+  - `records/{record_id}`
+- User history mirror:
+  - `users/{uid}/records/{record_id}`
+- Step6 fixed placeholders:
+  - `script_id = "step5-free-script"`
+  - `prompt_id = "step5-free-prompt"`
+
+### 9-3. Web behavior
+
+- After Upload success:
+  - web automatically calls `/v1/register`
+  - UI shows `Register status: registered` (or `already registered`)
+- On register failure:
+  - UI shows `Register status: failed (...)`
+  - `Retry register` button is enabled
+- `My records` list is loaded after sign-in and after successful register
+
+### 9-4. Required IAM for Step6 check
+
+`/v1/register` checks raw object existence in Storage, so Cloud Run service account needs:
+
+- `roles/storage.objectViewer` (read/check object)
+
+Existing Step5 roles for upload URL generation remain required.
+
+### 9-5. Quick verification
+
+1. Sign in
+2. Record audio
+3. Upload
+4. Confirm:
+  - `Upload status: uploaded`
+  - `Register status: registered` (or `already registered`)
+  - `My records` has a new item

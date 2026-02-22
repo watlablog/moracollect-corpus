@@ -22,6 +22,11 @@ import {
   drawWaveform,
   toWaveformLine,
 } from './waveform'
+import {
+  fetchMyRecords,
+  registerRecord,
+  type MyRecordItem,
+} from './records'
 import { requestUploadUrl, uploadRawBlob } from './upload'
 
 const MIN_DISPLAY_NAME_LENGTH = 2
@@ -31,6 +36,7 @@ const TARGET_DRAW_HZ = 5000
 const MIN_DRAW_POINTS = 4000
 const MAX_DRAW_POINTS = 30000
 const REDIRECT_RECOVERY_SESSION_KEY = 'moracollect.auth.redirect-recovery'
+const MY_RECORDS_LIMIT = 10
 
 function mustGetElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -103,6 +109,15 @@ app.innerHTML = `
         </div>
         <p id="upload-status" class="upload-status">Upload status: waiting for sign-in</p>
         <p id="upload-path" class="upload-path"></p>
+        <p id="register-status" class="register-status">Register status: waiting for upload</p>
+        <div class="register-actions">
+          <button id="register-retry" type="button" class="ghost">Retry register</button>
+        </div>
+
+        <section class="my-records-block">
+          <p id="my-records-status" class="my-records-status">My records: waiting for sign-in</p>
+          <ul id="my-records-list" class="my-records-list"></ul>
+        </section>
       </section>
 
       <hr class="divider" />
@@ -135,8 +150,21 @@ const uploadRecordingButton =
   mustGetElement<HTMLButtonElement>('#upload-recording')
 const uploadStatusEl = mustGetElement<HTMLElement>('#upload-status')
 const uploadPathEl = mustGetElement<HTMLElement>('#upload-path')
+const registerStatusEl = mustGetElement<HTMLElement>('#register-status')
+const registerRetryButton =
+  mustGetElement<HTMLButtonElement>('#register-retry')
+const myRecordsStatusEl = mustGetElement<HTMLElement>('#my-records-status')
+const myRecordsListEl = mustGetElement<HTMLUListElement>('#my-records-list')
 const apiStatusEl = mustGetElement<HTMLElement>('#api-status')
 const apiResultEl = mustGetElement<HTMLElement>('#api-result')
+
+type RegisterDraft = {
+  recordId: string
+  rawPath: string
+  mimeType: string | null
+  sizeBytes: number | null
+  durationMs: number | null
+}
 
 let currentUser: User | null = null
 const recorder = new BrowserRecorder()
@@ -144,7 +172,11 @@ let recordingObjectUrl: string | null = null
 let recordingCountdownTimer: number | null = null
 let lastRecordingBlob: Blob | null = null
 let lastRecordingMimeType: string | null = null
+let lastRecordingDurationMs: number | null = null
 let uploadInProgress = false
+let registerInProgress = false
+let registerRetryEnabled = false
+let pendingRegisterDraft: RegisterDraft | null = null
 
 function renderUser(user: User | null): void {
   if (user) {
@@ -272,7 +304,66 @@ function resetUploadState(statusText: string): void {
 function clearRecordedUploadSource(statusText: string): void {
   lastRecordingBlob = null
   lastRecordingMimeType = null
+  lastRecordingDurationMs = null
   resetUploadState(statusText)
+}
+
+function updateRegisterRetryButtonState(): void {
+  registerRetryButton.disabled =
+    !currentUser ||
+    !pendingRegisterDraft ||
+    !registerRetryEnabled ||
+    registerInProgress ||
+    uploadInProgress
+}
+
+function resetRegisterState(statusText: string, canRetry = false): void {
+  registerStatusEl.textContent = statusText
+  registerRetryEnabled = canRetry
+  updateRegisterRetryButtonState()
+}
+
+function clearRegisterDraft(statusText: string): void {
+  pendingRegisterDraft = null
+  registerInProgress = false
+  resetRegisterState(statusText, false)
+}
+
+function formatRecordDate(value: string | null): string {
+  if (!value) {
+    return '-'
+  }
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.valueOf())) {
+    return value
+  }
+  return parsed.toLocaleString()
+}
+
+function renderMyRecords(items: MyRecordItem[]): void {
+  myRecordsListEl.innerHTML = ''
+  if (items.length === 0) {
+    const li = document.createElement('li')
+    li.className = 'my-record-item empty'
+    li.textContent = 'No records yet.'
+    myRecordsListEl.append(li)
+    return
+  }
+
+  for (const item of items) {
+    const li = document.createElement('li')
+    li.className = 'my-record-item'
+    const sizeLabel =
+      typeof item.size_bytes === 'number'
+        ? `${Math.max(0, item.size_bytes)} bytes`
+        : 'size: -'
+    const durationLabel =
+      typeof item.duration_ms === 'number'
+        ? `${(item.duration_ms / 1000).toFixed(1)}s`
+        : 'duration: -'
+    li.textContent = `${item.record_id} | ${item.status} | ${durationLabel} | ${sizeLabel} | ${formatRecordDate(item.created_at)}`
+    myRecordsListEl.append(li)
+  }
 }
 
 function stopRecordingCountdown(): void {
@@ -338,6 +429,7 @@ function setRecordingButtonsState(): void {
     recordingStopButton.disabled = true
     recordingResetButton.disabled = true
     updateUploadButtonState()
+    updateRegisterRetryButtonState()
     return
   }
 
@@ -347,6 +439,7 @@ function setRecordingButtonsState(): void {
   recordingResetButton.disabled =
     !(state === 'recorded' || state === 'error')
   updateUploadButtonState()
+  updateRegisterRetryButtonState()
 }
 
 function isRecorderError(error: unknown): error is RecorderError {
@@ -384,6 +477,7 @@ function showRecordedAudio(result: RecordingResult): void {
   releaseRecordingObjectUrl()
   lastRecordingBlob = result.blob
   lastRecordingMimeType = result.mimeType
+  lastRecordingDurationMs = result.durationMs
   recordingObjectUrl = URL.createObjectURL(result.blob)
   recordingPreviewEl.src = recordingObjectUrl
   recordingPreviewEl.hidden = false
@@ -392,12 +486,14 @@ function showRecordedAudio(result: RecordingResult): void {
   recordingStatusEl.textContent = `Recording status: recorded (${durationSec}s)`
   recordingTimerEl.textContent = 'Time left: 0s'
   resetUploadState('Upload status: ready')
+  clearRegisterDraft('Register status: waiting for upload')
 }
 
 function setRecordingIdleState(): void {
   recorder.reset()
   releaseRecordingObjectUrl()
   clearRecordedUploadSource('Upload status: waiting for recording')
+  clearRegisterDraft('Register status: waiting for recording')
   clearWaveformView('Waveform: waiting for recording')
   stopRecordingCountdown()
   recordingStatusEl.textContent = 'Recording status: idle'
@@ -418,6 +514,7 @@ async function setRecordingSignedOutState(): Promise<void> {
   recorder.reset()
   releaseRecordingObjectUrl()
   clearRecordedUploadSource('Upload status: waiting for sign-in')
+  clearRegisterDraft('Register status: waiting for sign-in')
   clearWaveformView('Waveform: waiting for sign-in')
   recordingStatusEl.textContent = 'Recording status: waiting for sign-in'
   updateRecordingTimer()
@@ -436,6 +533,63 @@ async function runPing(user: User): Promise<void> {
   } catch (error) {
     apiStatusEl.textContent = 'API status: failed'
     apiResultEl.textContent = getApiErrorMessage(error)
+  }
+}
+
+async function loadMyRecords(user: User): Promise<void> {
+  myRecordsStatusEl.textContent = 'My records: loading ...'
+  try {
+    const idToken = await user.getIdToken()
+    const response = await fetchMyRecords(idToken, MY_RECORDS_LIMIT)
+    renderMyRecords(response.records)
+    myRecordsStatusEl.textContent = `My records: loaded (${response.records.length})`
+  } catch (error) {
+    renderMyRecords([])
+    myRecordsStatusEl.textContent = `My records: failed (${getApiErrorMessage(error)})`
+  }
+}
+
+function buildClientMeta(): Record<string, unknown> {
+  return {
+    user_agent: typeof navigator === 'undefined' ? '' : navigator.userAgent,
+    platform: typeof navigator === 'undefined' ? '' : navigator.platform,
+    language: typeof navigator === 'undefined' ? '' : navigator.language,
+  }
+}
+
+async function runRegisterForDraft(user: User, draft: RegisterDraft): Promise<void> {
+  registerInProgress = true
+  resetRegisterState('Register status: registering ...')
+
+  try {
+    const idToken = await user.getIdToken()
+    const response = await registerRecord(idToken, {
+      record_id: draft.recordId,
+      raw_path: draft.rawPath,
+      client_meta: buildClientMeta(),
+      recording_meta: {
+        ...(draft.mimeType ? { mime_type: draft.mimeType } : {}),
+        ...(typeof draft.sizeBytes === 'number'
+          ? { size_bytes: draft.sizeBytes }
+          : {}),
+        ...(typeof draft.durationMs === 'number'
+          ? { duration_ms: draft.durationMs }
+          : {}),
+      },
+    })
+    registerRetryEnabled = false
+    registerStatusEl.textContent = response.already_registered
+      ? 'Register status: already registered'
+      : 'Register status: registered'
+    updateRegisterRetryButtonState()
+    void loadMyRecords(user)
+  } catch (error) {
+    registerRetryEnabled = true
+    registerStatusEl.textContent = `Register status: failed (${getApiErrorMessage(error)})`
+    updateRegisterRetryButtonState()
+  } finally {
+    registerInProgress = false
+    updateRegisterRetryButtonState()
   }
 }
 
@@ -523,6 +677,7 @@ async function handleStartRecording(): Promise<void> {
     recordingStatusEl.textContent = `Recording status: error (${message})`
     releaseRecordingObjectUrl()
     clearRecordedUploadSource('Upload status: waiting for recording')
+    clearRegisterDraft('Register status: waiting for recording')
     clearWaveformView('Waveform: waiting for recording')
   } finally {
     updateRecordingTimer()
@@ -591,12 +746,41 @@ async function handleUploadRecording(): Promise<void> {
     )
     uploadStatusEl.textContent = 'Upload status: uploaded'
     uploadPathEl.textContent = `Saved to: ${uploadPlan.raw_path}`
+
+    pendingRegisterDraft = {
+      recordId: uploadPlan.record_id,
+      rawPath: uploadPlan.raw_path,
+      mimeType: lastRecordingMimeType,
+      sizeBytes: lastRecordingBlob.size,
+      durationMs: lastRecordingDurationMs,
+    }
+    registerRetryEnabled = false
+    updateRegisterRetryButtonState()
+
+    if (!currentUser) {
+      resetRegisterState('Register status: sign in first')
+      return
+    }
+    await runRegisterForDraft(currentUser, pendingRegisterDraft)
   } catch (error) {
     uploadStatusEl.textContent = `Upload status: failed (${getApiErrorMessage(error)})`
   } finally {
     uploadInProgress = false
     updateUploadButtonState()
+    updateRegisterRetryButtonState()
   }
+}
+
+async function handleRetryRegister(): Promise<void> {
+  if (!currentUser) {
+    resetRegisterState('Register status: sign in first')
+    return
+  }
+  if (!pendingRegisterDraft) {
+    resetRegisterState('Register status: waiting for upload')
+    return
+  }
+  await runRegisterForDraft(currentUser, pendingRegisterDraft)
 }
 
 let auth: Auth | null = null
@@ -619,6 +803,10 @@ try {
   uploadRecordingButton.disabled = true
   uploadStatusEl.textContent = 'Upload status: disabled (Firebase init failed)'
   uploadPathEl.textContent = ''
+  registerRetryButton.disabled = true
+  registerStatusEl.textContent = 'Register status: disabled (Firebase init failed)'
+  myRecordsStatusEl.textContent = 'My records: disabled (Firebase init failed)'
+  myRecordsListEl.innerHTML = ''
   apiStatusEl.textContent = 'API status: disabled'
   apiResultEl.textContent = 'Firebase init failed. Configure web/.env.local first.'
 }
@@ -646,12 +834,16 @@ if (auth) {
       setRecordingIdleState()
       void loadProfile(user)
       void runPing(user)
+      void loadMyRecords(user)
     } else {
       setProfileControlsDisabled(true)
       displayNameInput.value = ''
       profileStatusEl.textContent = 'Profile status: waiting for sign-in'
       apiStatusEl.textContent = 'API status: waiting for sign-in'
       apiResultEl.textContent = ''
+      resetRegisterState('Register status: waiting for sign-in')
+      myRecordsStatusEl.textContent = 'My records: waiting for sign-in'
+      myRecordsListEl.innerHTML = ''
       void setRecordingSignedOutState()
     }
   })
@@ -702,5 +894,9 @@ if (auth) {
 
   uploadRecordingButton.addEventListener('click', async () => {
     await handleUploadRecording()
+  })
+
+  registerRetryButton.addEventListener('click', async () => {
+    await handleRetryRegister()
   })
 }

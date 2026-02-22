@@ -54,3 +54,9 @@ def generate_upload_signed_url(
             access_token=access_token,
         )
     )
+
+
+def object_exists(bucket_name: str, object_path: str) -> bool:
+    client = storage.Client()
+    blob = client.bucket(bucket_name).blob(object_path)
+    return bool(blob.exists())

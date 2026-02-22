@@ -173,6 +173,48 @@ h1 {
   word-break: break-all;
 }
 
+.register-status {
+  min-height: 1.4rem;
+  margin: 0.55rem 0 0;
+  font-size: 0.9rem;
+  color: #7c2d12;
+}
+
+.register-actions {
+  margin-top: 0.45rem;
+}
+
+.my-records-block {
+  margin-top: 0.85rem;
+  border-top: 1px dashed #bfdbfe;
+  padding-top: 0.7rem;
+}
+
+.my-records-status {
+  min-height: 1.4rem;
+  margin: 0;
+  font-size: 0.9rem;
+  color: #1e3a8a;
+}
+
+.my-records-list {
+  margin: 0.55rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.my-record-item {
+  margin: 0.3rem 0;
+  font-size: 0.82rem;
+  color: #1f2937;
+  word-break: break-all;
+}
+
+.my-record-item.empty {
+  list-style: none;
+  margin-left: -1.1rem;
+  color: #6b7280;
+}
+
 .divider {
   margin: 1.25rem 0;
   border: 0;
