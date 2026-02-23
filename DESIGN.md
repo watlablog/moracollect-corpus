@@ -9,16 +9,22 @@
 
 > 強制アライメント（pydomino）や最終的な耳チェックは別工程とし、このWebアプリは「収集・整理・可視化（進捗/ランキング）」に集中します。
 
-### 0.1 現在地（2026-02-21時点）
-- Step0〜Step5 は完了
+### 0.1 現在地（2026-02-23時点）
+- Step0〜Step7 は完了
   - Step0: Hosting公開
   - Step1: Firebase Auth（Google）ログイン
   - Step2: 認証付き `/v1/ping`
   - Step3: 表示名プロフィール（`/v1/profile`）
   - Step4: 録音UI（録音/停止/再生 + 波形）
   - Step5: 署名付きURLアップロード（`/v1/upload-url`）
-- 実装済み要素: Auth / Profile / Recording / Waveform / Upload
-- 次アクション: **Step6（register / my-records）**
+  - Step6: records登録（`/v1/register`, `/v1/my-records`）
+  - Step7: 任意prompt選択 + 件数可視化（`/v1/scripts`, `/v1/prompts`）
+- 実装済み要素: Auth / Profile / Recording / Waveform / Upload / Register / My records / Script & Prompt selection
+- Step7の標準データ:
+  - script: `s-gojuon`（表示名 `50音`）1件
+  - prompts: 104件（清音46 + 濁音/半濁音25 + 拗音33）
+  - 表示順: `order` による固定50音順
+- 次アクション: **Step8（raw->wav変換 + QC）**
 
 ---
 
@@ -152,8 +158,8 @@ moracollect-corpus/
 `records/{record_id}`
 - `uid`: string
 - `record_id`: string（doc id と同値）
-- `prompt_id`: string（Step6固定値: `"step5-free-prompt"`）
-- `script_id`: string（Step6固定値: `"step5-free-script"`）
+- `prompt_id`: string（Step7でユーザー選択値を保存）
+- `script_id`: string（Step7でユーザー選択値を保存）
 - `raw_path`: string（`raw/{uid}/{record_id}.{ext}`）
 - `wav_path`: string（Step6では空文字）
 - `created_at`: timestamp
@@ -187,16 +193,26 @@ moracollect-corpus/
 > 正本は `records/{record_id}`。
 
 ### 5.6 集計（進捗）
-`stats/scripts/{script_id}`
+`stats_prompts/{prompt_id}`
+- `script_id`: string
 - `total_records`: number
 - `unique_speakers`: number
-- `last_updated`
+- `updated_at`: timestamp
+- `last_record_at`: timestamp
 
-`stats/users/{uid}`
-- `total_records`
-- `weekly_records/{YYYY-WW}`: number（サブマップでも別コレクションでも）
-- `monthly_records/{YYYY-MM}`: number
-- `last_updated`
+`stats_prompts/{prompt_id}/speakers/{uid}`
+- `uid`: string
+- `created_at`: timestamp
+
+`stats_scripts/{script_id}`
+- `total_records`: number
+- `unique_speakers`: number
+- `updated_at`: timestamp
+- `last_record_at`: timestamp
+
+`stats_scripts/{script_id}/speakers/{uid}`
+- `uid`: string
+- `created_at`: timestamp
 
 ### 5.7 ランキング表示用（スナップショット）
 `leaderboards/{period}/ranks/{uid}`
@@ -229,13 +245,15 @@ moracollect-corpus/
 #### Collector
 - `GET /v1/ping`  
   - 認証確認、uid返却
+- `GET /v1/scripts`
+  - 収録用 script 一覧（`prompt_count/total_records/unique_speakers` を含む）
 - `GET /v1/prompts?script_id=...`  
-  - 収録用プロンプト一覧
+  - 選択script内の prompt 一覧（`total_records/unique_speakers` を含む）
 - `POST /v1/upload-url`  
   - body: `{ext, content_type}`  
   - return: `{record_id, upload_url, raw_path, required_headers}`
 - `POST /v1/register`  
-  - body: `{record_id, raw_path, client_meta, recording_meta}`
+  - body: `{record_id, raw_path, script_id, prompt_id, client_meta, recording_meta}`
 - `GET /v1/my-records?limit=...`  
   - 自分の収録履歴
 
@@ -259,11 +277,13 @@ moracollect-corpus/
 - アップロード: Signed URL（PUT）
 - ダウンロード: Signed URL（GET）※管理者だけ or 収録者本人だけ
 
-### 7.4 Step6で固定するインターフェース（決定版）
+### 7.4 Step7で固定するインターフェース（決定版）
 #### `POST /v1/register`（auth required）
 - Request
   - `record_id`: UUID文字列（必須）
   - `raw_path`: `raw/{uid}/{record_id}.{ext}`（必須）
+  - `script_id`: string（必須）
+  - `prompt_id`: string（必須）
   - `client_meta`: object（任意）
   - `recording_meta`: object（任意）
     - `mime_type`, `size_bytes`, `duration_ms`
@@ -275,8 +295,23 @@ moracollect-corpus/
 - Error
   - `401`: auth invalid
   - `400`: invalid record_id / invalid raw_path / uid mismatch
+  - `400`: invalid script_id / invalid prompt_id
+  - `400`: prompt does not belong to script
   - `404`: raw object not found
   - `409`: record_id already owned by different uid
+
+#### `GET /v1/scripts`（auth required）
+- Response
+  - `ok: true`
+  - `scripts: []`
+  - 各要素: `script_id/title/description/order/is_active/prompt_count/total_records/unique_speakers`
+
+#### `GET /v1/prompts?script_id=...`（auth required）
+- Response
+  - `ok: true`
+  - `script_id`
+  - `prompts: []`
+  - 各要素: `prompt_id/text/order/is_active/total_records/unique_speakers`
 
 #### `GET /v1/my-records?limit=...`（auth required）
 - Response
@@ -286,11 +321,6 @@ moracollect-corpus/
 - limit
   - 既定: `20`
   - 上限: `50`
-
-#### Step6固定値（Step7で差し替え）
-- `script_id = "step5-free-script"`
-- `prompt_id = "step5-free-prompt"`
-- 上記は Step6 で records に保存し、Step7で prompts/scripts 導線へ置換する
 
 ---
 
@@ -516,16 +546,29 @@ flowchart LR
 
 ### Step 7: prompts / scripts を表示して、収録を回せるUIへ
 **実装**
-- Firestoreに prompts / scripts を投入
-- `script -> prompt -> record` の導線
+- Firestoreに `scripts` / `prompts` を投入（seedで再現可能にする）
+  - `infra/seeds/scripts.json`
+  - `infra/seeds/prompts.json`
+  - `api/scripts/seed_step7_data.py`
+- `GET /v1/scripts` と `GET /v1/prompts` を追加
+- フロントに `script select + prompt button grid` を追加
+- promptは任意選択で録音し、Upload/Registerへ接続する
+- Register時に `script_id/prompt_id` を保存し、固定値を廃止する
+- Register成功時に `stats_prompts` / `stats_scripts` を同期更新する
+  - `total_records` は毎回 +1
+  - `unique_speakers` は `speakers/{uid}` が初回のときのみ +1
 
 **テスト**
-- 指定scriptのpromptが出る
+- script切替でprompt一覧が切り替わる
+- promptボタンは `total_records / unique_speakers` を表示する
+- promptを任意選択して録音→upload→registerが成功する
 - promptごとに複数takeが取れる
-- 収録回数が表示される
+- register直後に該当promptの件数表示が更新される
+- 同一話者の再録音で `unique_speakers` は増えない
 
 **合格条件**
-- コミュニティが実際に収録できる
+- 順番固定でなく任意prompt選択で収録を回せる
+- 全ユーザーが prompt 単位の偏り（件数/人数）を把握できる
 
 ---
 
@@ -546,7 +589,7 @@ flowchart LR
 
 ### Step 9: 進捗ダッシュボード（script別の人数/件数）
 **実装**
-- `stats/scripts/{script_id}` を更新（Job内で更新）
+- `stats_scripts/{script_id}` を更新（Job内で更新）
 - `/v1/dashboard/scripts` を実装
 
 **テスト**
@@ -590,6 +633,15 @@ flowchart LR
 - raw未存在は `404`
 - 他人UIDで同一 `record_id` 競合は `409`
 
+### 12.2 Step7 詳細DoD（任意prompt収録）
+- `GET /v1/scripts` が `prompt_count/total_records/unique_speakers` を返す
+- `GET /v1/prompts?script_id=...` が prompt一覧と件数を返す
+- `POST /v1/register` は `script_id/prompt_id` を必須として保存する
+- `script_id` 不正は `400`、`prompt_id` 不正は `400`
+- `prompt` が `script` に属さない場合は `400`
+- register成功時に `stats_prompts` / `stats_scripts` が更新される
+- 同一話者の同一prompt再登録で `unique_speakers` は増えない
+
 ---
 
 ## 13. 初回公開での安全対策（必須）
@@ -619,9 +671,62 @@ flowchart LR
 
 ---
 
-## 16. Step6での前提（Assumptions / Defaults）
+## 16. Step7での前提（Assumptions / Defaults）
 - 対象プロジェクト: `moracollect-watlab`
-- Step6では既存rawのbackfillは実施しない
+- Step7では既存rawのbackfillは実施しない
 - Upload成功後のregisterはWeb側で自動実行
 - Storage実在チェックはregister時に実施
 - recordsの正本は `records/{record_id}`
+- 収録順は固定しない（ボタンから任意選択）
+- 画面表示順は `order` 固定（50音順）
+- prompt件数は `total_records + unique_speakers` を表示する
+
+---
+
+## 17. 実装時につまずきやすい点（Step0〜Step7）
+### 17.1 セットアップ系
+- `Failed to get Firebase project your-firebase-project-id`
+  - 原因: `.firebaserc` がプレースホルダのまま
+  - 対処: 実プロジェクトIDへ置換
+- `Firebase is not configured. Missing required environment variable ...`
+  - 原因: `web/.env.local` 未作成/未設定
+  - 対処: `web/.env.example` から作成して実値を設定
+
+### 17.2 認証系（モバイル含む）
+- `auth/configuration-not-found`
+  - 原因: Firebase Auth の Google provider 未有効化
+  - 対処: Firebase Console > Authentication > Sign-in method で Google 有効化
+- `redirect_uri_mismatch` / 「アクセスをブロック: このアプリのリクエストは無効です」
+  - 原因候補: 認証ドメイン不整合、古いビルド、認可ドメイン設定不足
+  - 対処: `VITE_FIREBASE_AUTH_DOMAIN` と authorized domains を整合させ、再ビルド/再デプロイ
+
+### 17.3 Cloud Run / Storage系
+- Cloud Run deploy時の billing エラー（`Billing account ... not found`）
+  - 原因: プロジェクトで請求未設定
+  - 対処: Billing を有効化して再デプロイ
+- `Failed to generate upload URL`（`/v1/upload-url` が500）
+  - 原因候補: 署名権限不足（`iam.serviceAccounts.signBlob` 系）、bucket/env設定不一致
+  - 対処: 実行SA権限と `STORAGE_BUCKET` を確認、Cloud Run再デプロイ
+- `Upload status: failed (Failed to fetch)`（ブラウザ）
+  - 原因候補: Storage CORS 未設定
+  - 対処: bucket CORS に Hosting/localhost origin と `PUT, OPTIONS` を追加
+
+### 17.4 Step7 seed/データ整合系
+- `Scripts: failed (Not Found)`
+  - 原因候補: Step7未反映APIを参照、`VITE_API_BASE_URL` の向き先違い
+  - 対処: `/openapi.json` で `/v1/scripts` の有無確認、API/Hosting再デプロイ
+- `ModuleNotFoundError: No module named 'firebase_admin'`（seed実行時）
+  - 原因: `.venv` 未有効化または依存不足
+  - 対処: `source .venv/bin/activate` + `pip install -r requirements.txt`
+- `DefaultCredentialsError`（seed実行時）
+  - 原因: ADC未設定
+  - 対処: `gcloud auth application-default login`
+- `UserWarning: ... without a quota project`（seed実行時）
+  - 意味: 警告（失敗とは限らない）
+  - 対処: `gcloud auth application-default set-quota-project moracollect-watlab`
+- `prompt ... references unknown script_id ...`
+  - 原因: `scripts.json` と `prompts.json` の `script_id` 不一致
+  - 対処: 参照先IDを統一して seed 再実行
+- 旧script/promptがUIに残る
+  - 原因: Firestoreに旧seedデータが残存
+  - 対処: `seed_step7_data.py` を再実行（seed未定義の `scripts/prompts` を prune）

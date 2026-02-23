@@ -1,7 +1,7 @@
 # MoraCollect
 
 MoraCollect is a corpus collection web app.
-This repository currently implements Step 0-6 scope from `DESIGN.md`:
+This repository currently implements Step 0-7 scope from `DESIGN.md`:
 
 - Step 0: public web page on Firebase Hosting
 - Step 1: Google sign-in/sign-out with Firebase Auth
@@ -10,6 +10,7 @@ This repository currently implements Step 0-6 scope from `DESIGN.md`:
 - Step 4: browser recording UI (record/stop/playback + waveform)
 - Step 5: signed URL issue + manual upload to Cloud Storage
 - Step 6: register metadata (`/v1/register`) + my records (`/v1/my-records`)
+- Step 7: script/prompt selection UI + prompt progress stats (`total_records`, `unique_speakers`)
 
 Beginner tutorials (JP):
 
@@ -19,6 +20,7 @@ Beginner tutorials (JP):
 - `04-Tutorial-Step4-Recording-Only.md`
 - `05-Tutorial-Step5-Upload-URL.md`
 - `06-Tutorial-Step6-Register-Records.md`
+- `07-Tutorial-Step7-Prompt-Selection.md`
 
 ## Tech stack (current)
 
@@ -332,12 +334,16 @@ If upload fails with CORS errors in browser console, configure bucket CORS to al
   - request:
     - `record_id` (UUID)
     - `raw_path` (`raw/<uid>/<record_id>.<ext>`)
+    - `script_id` (selected script id)
+    - `prompt_id` (selected prompt id)
     - `client_meta` (optional object)
     - `recording_meta` (optional object: `mime_type`, `size_bytes`, `duration_ms`)
   - response: `record_id`, `status`, `already_registered`
   - validation/errors:
     - `401` auth invalid
     - `400` invalid `record_id` / `raw_path` / uid mismatch
+    - `400` invalid `script_id` / `prompt_id`
+    - `400` prompt-script mismatch
     - `404` raw object not found in Storage
     - `409` `record_id` is already owned by different uid
 
@@ -351,9 +357,9 @@ If upload fails with CORS errors in browser console, configure bucket CORS to al
   - `records/{record_id}`
 - User history mirror:
   - `users/{uid}/records/{record_id}`
-- Step6 fixed placeholders:
-  - `script_id = "step5-free-script"`
-  - `prompt_id = "step5-free-prompt"`
+- Step7 stores selected values:
+  - `script_id = selected script`
+  - `prompt_id = selected prompt`
 
 ### 9-3. Web behavior
 
@@ -382,3 +388,108 @@ Existing Step5 roles for upload URL generation remain required.
   - `Upload status: uploaded`
   - `Register status: registered` (or `already registered`)
   - `My records` has a new item
+
+## 10. Step7: Script/Prompt selection + progress stats
+
+### 10-1. New API endpoints
+
+- `GET /v1/scripts` (auth required)
+  - returns active script list with:
+    - `prompt_count`
+    - `total_records`
+    - `unique_speakers`
+- `GET /v1/prompts?script_id=<id>` (auth required)
+  - returns active prompts in selected script with:
+    - `total_records`
+    - `unique_speakers`
+
+### 10-2. Register update
+
+`POST /v1/register` now requires:
+
+- `script_id`
+- `prompt_id`
+
+The API validates script/prompt consistency and updates:
+
+- `stats_prompts/{prompt_id}`
+- `stats_prompts/{prompt_id}/speakers/{uid}`
+- `stats_scripts/{script_id}`
+- `stats_scripts/{script_id}/speakers/{uid}`
+
+### 10-3. Seed Step7 data
+
+Seed files:
+
+- `infra/seeds/scripts.json`
+- `infra/seeds/prompts.json`
+
+Seed command:
+
+```bash
+cd api
+python3 -m venv .venv                 # first time only
+source .venv/bin/activate
+pip install -r requirements.txt       # first time only
+# if ADC is not configured:
+# gcloud auth application-default login
+python3 scripts/seed_step7_data.py
+deactivate
+```
+
+### 10-4. Web behavior
+
+- Signed-in user selects script from dropdown
+- In current default operation:
+  - script = `50音` (`s-gojuon`) only
+  - prompts = 104 entries in fixed gojuon order
+- Prompt buttons are shown in grid (fixed gojuon order by `order`)
+- User chooses any prompt and records/uploads
+- Upload button is enabled only when:
+  - signed in
+  - prompt selected
+  - recording exists
+- Register success refreshes prompt counts immediately
+- Current default seed:
+  - script: `50音` (`s-gojuon`)
+  - prompts: 104 items (46 clear + 25 voiced/semi-voiced + 33 contracted sounds)
+
+### 10-5. Deploy order
+
+1. Deploy API
+2. Run seed script
+3. Build/deploy web hosting
+
+```bash
+gcloud run deploy moracollect-api \
+  --source api \
+  --region asia-northeast1 \
+  --allow-unauthenticated \
+  --set-env-vars FIREBASE_PROJECT_ID=moracollect-watlab,STORAGE_BUCKET=moracollect-watlab.firebasestorage.app
+
+cd web
+npm run build
+cd ..
+firebase deploy --only hosting
+```
+
+### 10-6. Step7 troubleshooting (frequent)
+
+- `Scripts: failed (Not Found)`
+  - cause: Web points to wrong/old API URL, or API revision without `/v1/scripts`
+  - fix: verify `VITE_API_BASE_URL`, redeploy API, then rebuild/redeploy Hosting
+- `ModuleNotFoundError: No module named 'firebase_admin'` (while seed)
+  - cause: venv/dependencies are not ready
+  - fix: `source .venv/bin/activate` and `pip install -r requirements.txt`
+- `DefaultCredentialsError` (while seed)
+  - cause: ADC is not configured for Firestore write
+  - fix: run `gcloud auth application-default login`
+- `UserWarning: ... without a quota project` (while seed)
+  - cause: ADC uses user credentials without quota project
+  - fix: `gcloud auth application-default set-quota-project moracollect-watlab`
+- `prompt ... references unknown script_id ...` (while seed)
+  - cause: `scripts.json` and `prompts.json` are inconsistent
+  - fix: make prompt `script_id` match existing script (current: `s-gojuon`)
+- Old scripts/prompts still shown in UI
+  - cause: legacy Firestore seed data remains
+  - fix: rerun `seed_step7_data.py` (it prunes missing `scripts/prompts`)

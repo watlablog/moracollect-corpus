@@ -27,6 +27,12 @@ import {
   registerRecord,
   type MyRecordItem,
 } from './records'
+import {
+  fetchPrompts,
+  fetchScripts,
+  type PromptItem,
+  type ScriptItem,
+} from './prompts'
 import { requestUploadUrl, uploadRawBlob } from './upload'
 
 const MIN_DISPLAY_NAME_LENGTH = 2
@@ -37,6 +43,7 @@ const MIN_DRAW_POINTS = 4000
 const MAX_DRAW_POINTS = 30000
 const REDIRECT_RECOVERY_SESSION_KEY = 'moracollect.auth.redirect-recovery'
 const MY_RECORDS_LIMIT = 10
+const SCRIPT_NONE_VALUE = ''
 
 function mustGetElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -92,8 +99,20 @@ app.innerHTML = `
 
       <hr class="divider" />
 
+      <section class="prompt-block">
+        <p class="prompt-heading">Step7: Script and prompt selection</p>
+        <label for="script-select" class="prompt-label">Script</label>
+        <select id="script-select" class="script-select"></select>
+        <p id="script-status" class="script-status">Scripts: waiting for sign-in</p>
+        <p id="prompt-status" class="prompt-status">Prompts: waiting for sign-in</p>
+        <p id="selected-prompt" class="selected-prompt">Selected prompt: none</p>
+        <div id="prompt-grid" class="prompt-grid" role="listbox" aria-label="Prompt selection"></div>
+      </section>
+
+      <hr class="divider" />
+
       <section class="recording-block">
-        <p class="recording-heading">Step4-5: Recording and upload</p>
+        <p class="recording-heading">Step4-7: Recording, upload, register</p>
         <p id="recording-status" class="recording-status">Recording status: waiting for sign-in</p>
         <p id="recording-timer" class="recording-timer">Time left: ${MAX_RECORDING_SECONDS}s</p>
         <div class="recording-actions">
@@ -135,6 +154,11 @@ const logoutButton = mustGetElement<HTMLButtonElement>('#logout')
 const displayNameInput = mustGetElement<HTMLInputElement>('#display-name')
 const saveProfileButton = mustGetElement<HTMLButtonElement>('#save-profile')
 const profileStatusEl = mustGetElement<HTMLElement>('#profile-status')
+const scriptSelectEl = mustGetElement<HTMLSelectElement>('#script-select')
+const scriptStatusEl = mustGetElement<HTMLElement>('#script-status')
+const promptStatusEl = mustGetElement<HTMLElement>('#prompt-status')
+const selectedPromptEl = mustGetElement<HTMLElement>('#selected-prompt')
+const promptGridEl = mustGetElement<HTMLDivElement>('#prompt-grid')
 const recordingStatusEl = mustGetElement<HTMLElement>('#recording-status')
 const recordingTimerEl = mustGetElement<HTMLElement>('#recording-timer')
 const recordingStartButton =
@@ -161,6 +185,8 @@ const apiResultEl = mustGetElement<HTMLElement>('#api-result')
 type RegisterDraft = {
   recordId: string
   rawPath: string
+  scriptId: string
+  promptId: string
   mimeType: string | null
   sizeBytes: number | null
   durationMs: number | null
@@ -178,6 +204,10 @@ let uploadCompletedForCurrentRecording = false
 let registerInProgress = false
 let registerRetryEnabled = false
 let pendingRegisterDraft: RegisterDraft | null = null
+let availableScripts: ScriptItem[] = []
+let availablePrompts: PromptItem[] = []
+let selectedScriptId: string | null = null
+let selectedPromptId: string | null = null
 
 function renderUser(user: User | null): void {
   if (user) {
@@ -273,6 +303,216 @@ function setProfileControlsDisabled(disabled: boolean): void {
   saveProfileButton.disabled = disabled
 }
 
+function formatScriptLabel(script: ScriptItem): string {
+  return `${script.title} (${script.total_records} rec / ${script.unique_speakers} spk)`
+}
+
+function sortPromptsForDisplay(prompts: PromptItem[]): PromptItem[] {
+  return [...prompts].sort((a, b) => {
+    if (a.order !== b.order) {
+      return a.order - b.order
+    }
+    return a.prompt_id.localeCompare(b.prompt_id)
+  })
+}
+
+function findSelectedPrompt(): PromptItem | null {
+  if (!selectedPromptId) {
+    return null
+  }
+  return availablePrompts.find((item) => item.prompt_id === selectedPromptId) ?? null
+}
+
+function updateSelectedPromptLabel(): void {
+  const selectedPrompt = findSelectedPrompt()
+  if (!selectedPrompt) {
+    selectedPromptEl.textContent = 'Selected prompt: none'
+    return
+  }
+  selectedPromptEl.textContent = `Selected prompt: ${selectedPrompt.text} (${selectedPrompt.total_records} rec / ${selectedPrompt.unique_speakers} spk)`
+}
+
+function renderScriptOptions(): void {
+  scriptSelectEl.innerHTML = ''
+
+  if (availableScripts.length === 0) {
+    const option = document.createElement('option')
+    option.value = SCRIPT_NONE_VALUE
+    option.textContent = 'No active scripts'
+    scriptSelectEl.append(option)
+    scriptSelectEl.value = SCRIPT_NONE_VALUE
+    scriptSelectEl.disabled = true
+    return
+  }
+
+  for (const script of availableScripts) {
+    const option = document.createElement('option')
+    option.value = script.script_id
+    option.textContent = formatScriptLabel(script)
+    scriptSelectEl.append(option)
+  }
+
+  if (!selectedScriptId) {
+    selectedScriptId = availableScripts[0]?.script_id ?? null
+  }
+  scriptSelectEl.value = selectedScriptId ?? availableScripts[0].script_id
+  scriptSelectEl.disabled = !currentUser
+}
+
+function renderPromptButtons(): void {
+  promptGridEl.innerHTML = ''
+  const sortedPrompts = sortPromptsForDisplay(availablePrompts)
+
+  if (sortedPrompts.length === 0) {
+    const emptyEl = document.createElement('p')
+    emptyEl.className = 'prompt-empty'
+    emptyEl.textContent = 'No prompts in this script.'
+    promptGridEl.append(emptyEl)
+    return
+  }
+
+  for (const prompt of sortedPrompts) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.className = 'prompt-button'
+    if (selectedPromptId === prompt.prompt_id) {
+      button.classList.add('selected')
+    }
+    button.disabled = !currentUser
+
+    const title = document.createElement('span')
+    title.className = 'prompt-button-text'
+    title.textContent = prompt.text
+
+    const meta = document.createElement('span')
+    meta.className = 'prompt-button-meta'
+    meta.textContent = `${prompt.total_records} rec / ${prompt.unique_speakers} spk`
+
+    button.append(title, meta)
+    button.addEventListener('click', () => {
+      if (!currentUser) {
+        return
+      }
+      selectedPromptId = prompt.prompt_id
+      updateSelectedPromptLabel()
+      renderPromptButtons()
+      setRecordingButtonsState()
+    })
+    promptGridEl.append(button)
+  }
+}
+
+function updatePromptButtonsDisabled(disabled: boolean): void {
+  const buttons = promptGridEl.querySelectorAll<HTMLButtonElement>('button.prompt-button')
+  for (const button of buttons) {
+    button.disabled = disabled
+  }
+}
+
+async function loadPromptsForScript(
+  user: User,
+  scriptId: string,
+  preserveSelection: boolean,
+): Promise<void> {
+  promptStatusEl.textContent = 'Prompts: loading ...'
+  promptGridEl.innerHTML = ''
+  if (!preserveSelection) {
+    selectedPromptId = null
+    updateSelectedPromptLabel()
+  }
+  setRecordingButtonsState()
+
+  try {
+    const idToken = await user.getIdToken()
+    const response = await fetchPrompts(idToken, scriptId)
+    availablePrompts = response.prompts
+    if (
+      preserveSelection &&
+      selectedPromptId &&
+      availablePrompts.some((item) => item.prompt_id === selectedPromptId)
+    ) {
+      // Keep selected prompt.
+    } else {
+      selectedPromptId = null
+    }
+    renderPromptButtons()
+    updateSelectedPromptLabel()
+    promptStatusEl.textContent = `Prompts: loaded (${availablePrompts.length})`
+  } catch (error) {
+    availablePrompts = []
+    selectedPromptId = null
+    renderPromptButtons()
+    updateSelectedPromptLabel()
+    promptStatusEl.textContent = `Prompts: failed (${getApiErrorMessage(error)})`
+  } finally {
+    setRecordingButtonsState()
+  }
+}
+
+async function loadScriptsAndPrompts(
+  user: User,
+  preserveSelection = false,
+): Promise<void> {
+  scriptStatusEl.textContent = 'Scripts: loading ...'
+  promptStatusEl.textContent = 'Prompts: waiting for script'
+  const previousScriptId = selectedScriptId
+  const previousPromptId = selectedPromptId
+  if (!preserveSelection) {
+    selectedPromptId = null
+    updateSelectedPromptLabel()
+  }
+  availablePrompts = []
+  renderPromptButtons()
+
+  try {
+    const idToken = await user.getIdToken()
+    const response = await fetchScripts(idToken)
+    availableScripts = response.scripts
+    if (availableScripts.length === 0) {
+      selectedScriptId = null
+      renderScriptOptions()
+      scriptStatusEl.textContent = 'Scripts: no active scripts'
+      promptStatusEl.textContent = 'Prompts: unavailable'
+      setRecordingButtonsState()
+      return
+    }
+
+    if (
+      !selectedScriptId ||
+      !availableScripts.some((s) => s.script_id === selectedScriptId)
+    ) {
+      selectedScriptId = availableScripts[0].script_id
+    }
+
+    const keepPromptSelection =
+      preserveSelection &&
+      Boolean(previousScriptId) &&
+      Boolean(previousPromptId) &&
+      selectedScriptId === previousScriptId
+    if (keepPromptSelection) {
+      selectedPromptId = previousPromptId
+    } else {
+      selectedPromptId = null
+      updateSelectedPromptLabel()
+    }
+
+    renderScriptOptions()
+    scriptStatusEl.textContent = `Scripts: loaded (${availableScripts.length})`
+    await loadPromptsForScript(user, selectedScriptId, keepPromptSelection)
+  } catch (error) {
+    availableScripts = []
+    selectedScriptId = null
+    renderScriptOptions()
+    availablePrompts = []
+    selectedPromptId = null
+    renderPromptButtons()
+    updateSelectedPromptLabel()
+    scriptStatusEl.textContent = `Scripts: failed (${getApiErrorMessage(error)})`
+    promptStatusEl.textContent = 'Prompts: unavailable'
+    setRecordingButtonsState()
+  }
+}
+
 function getUploadTargetFromMimeType(
   mimeType: string,
 ): { ext: 'webm' | 'mp4'; contentType: 'audio/webm' | 'audio/mp4' } {
@@ -287,8 +527,10 @@ function getUploadTargetFromMimeType(
 }
 
 function updateUploadButtonState(): void {
+  const hasPromptSelection = Boolean(selectedScriptId && selectedPromptId)
   uploadRecordingButton.disabled =
     !currentUser ||
+    !hasPromptSelection ||
     !lastRecordingBlob ||
     !lastRecordingMimeType ||
     recorder.getState() === 'recording' ||
@@ -428,16 +670,21 @@ async function renderWaveformFromBlob(blob: Blob): Promise<void> {
 
 function setRecordingButtonsState(): void {
   if (!currentUser) {
+    scriptSelectEl.disabled = true
     recordingStartButton.disabled = true
     recordingStopButton.disabled = true
     recordingResetButton.disabled = true
+    updatePromptButtonsDisabled(true)
     updateUploadButtonState()
     updateRegisterRetryButtonState()
     return
   }
 
+  scriptSelectEl.disabled = availableScripts.length === 0
+  updatePromptButtonsDisabled(false)
   const state = recorder.getState()
-  recordingStartButton.disabled = state !== 'idle'
+  const hasPromptSelection = Boolean(selectedScriptId && selectedPromptId)
+  recordingStartButton.disabled = state !== 'idle' || !hasPromptSelection
   recordingStopButton.disabled = state !== 'recording'
   recordingResetButton.disabled =
     !(state === 'recorded' || state === 'error')
@@ -525,6 +772,18 @@ async function setRecordingSignedOutState(): Promise<void> {
   setRecordingButtonsState()
 }
 
+function setPromptSignedOutState(): void {
+  availableScripts = []
+  availablePrompts = []
+  selectedScriptId = null
+  selectedPromptId = null
+  renderScriptOptions()
+  renderPromptButtons()
+  updateSelectedPromptLabel()
+  scriptStatusEl.textContent = 'Scripts: waiting for sign-in'
+  promptStatusEl.textContent = 'Prompts: waiting for sign-in'
+}
+
 async function runPing(user: User): Promise<void> {
   apiStatusEl.textContent = 'API status: checking /v1/ping ...'
   apiResultEl.textContent = ''
@@ -570,6 +829,8 @@ async function runRegisterForDraft(user: User, draft: RegisterDraft): Promise<vo
     const response = await registerRecord(idToken, {
       record_id: draft.recordId,
       raw_path: draft.rawPath,
+      script_id: draft.scriptId,
+      prompt_id: draft.promptId,
       client_meta: buildClientMeta(),
       recording_meta: {
         ...(draft.mimeType ? { mime_type: draft.mimeType } : {}),
@@ -587,6 +848,7 @@ async function runRegisterForDraft(user: User, draft: RegisterDraft): Promise<vo
       : 'Register status: registered'
     updateRegisterRetryButtonState()
     void loadMyRecords(user)
+    void loadScriptsAndPrompts(user, true)
   } catch (error) {
     registerRetryEnabled = true
     registerStatusEl.textContent = `Register status: failed (${getApiErrorMessage(error)})`
@@ -647,6 +909,11 @@ async function handleSaveProfile(): Promise<void> {
 async function handleStartRecording(): Promise<void> {
   if (!currentUser) {
     recordingStatusEl.textContent = 'Recording status: sign in first'
+    setRecordingButtonsState()
+    return
+  }
+  if (!selectedScriptId || !selectedPromptId) {
+    recordingStatusEl.textContent = 'Recording status: select a prompt first'
     setRecordingButtonsState()
     return
   }
@@ -723,6 +990,11 @@ async function handleUploadRecording(): Promise<void> {
     updateUploadButtonState()
     return
   }
+  if (!selectedScriptId || !selectedPromptId) {
+    uploadStatusEl.textContent = 'Upload status: select a prompt first'
+    updateUploadButtonState()
+    return
+  }
   if (!lastRecordingBlob || !lastRecordingMimeType) {
     uploadStatusEl.textContent = 'Upload status: record audio first'
     updateUploadButtonState()
@@ -755,6 +1027,8 @@ async function handleUploadRecording(): Promise<void> {
     pendingRegisterDraft = {
       recordId: uploadPlan.record_id,
       rawPath: uploadPlan.raw_path,
+      scriptId: selectedScriptId,
+      promptId: selectedPromptId,
       mimeType: lastRecordingMimeType,
       sizeBytes: lastRecordingBlob.size,
       durationMs: lastRecordingDurationMs,
@@ -798,6 +1072,11 @@ try {
   signInButton.disabled = true
   logoutButton.disabled = true
   setProfileControlsDisabled(true)
+  scriptSelectEl.disabled = true
+  scriptStatusEl.textContent = 'Scripts: disabled (Firebase init failed)'
+  promptStatusEl.textContent = 'Prompts: disabled (Firebase init failed)'
+  selectedPromptEl.textContent = 'Selected prompt: none'
+  promptGridEl.innerHTML = ''
   profileStatusEl.textContent = 'Profile status: disabled (Firebase init failed)'
   recordingStatusEl.textContent = 'Recording status: disabled (Firebase init failed)'
   recordingTimerEl.textContent = 'Time left: --'
@@ -837,6 +1116,7 @@ if (auth) {
 
     if (user) {
       setRecordingIdleState()
+      void loadScriptsAndPrompts(user)
       void loadProfile(user)
       void runPing(user)
       void loadMyRecords(user)
@@ -844,6 +1124,7 @@ if (auth) {
       setProfileControlsDisabled(true)
       displayNameInput.value = ''
       profileStatusEl.textContent = 'Profile status: waiting for sign-in'
+      setPromptSignedOutState()
       apiStatusEl.textContent = 'API status: waiting for sign-in'
       apiResultEl.textContent = ''
       resetRegisterState('Register status: waiting for sign-in')
@@ -883,6 +1164,26 @@ if (auth) {
 
   saveProfileButton.addEventListener('click', async () => {
     await handleSaveProfile()
+  })
+
+  scriptSelectEl.addEventListener('change', async () => {
+    if (!currentUser) {
+      return
+    }
+    const nextScriptId = scriptSelectEl.value
+    if (!nextScriptId || nextScriptId === SCRIPT_NONE_VALUE) {
+      selectedScriptId = null
+      selectedPromptId = null
+      availablePrompts = []
+      renderPromptButtons()
+      updateSelectedPromptLabel()
+      setRecordingButtonsState()
+      return
+    }
+    selectedScriptId = nextScriptId
+    selectedPromptId = null
+    updateSelectedPromptLabel()
+    await loadPromptsForScript(currentUser, nextScriptId, false)
   })
 
   recordingStartButton.addEventListener('click', async () => {

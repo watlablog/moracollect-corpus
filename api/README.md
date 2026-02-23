@@ -1,4 +1,4 @@
-# API (Step2-Step5)
+# API (Step2-Step7)
 
 ## Local run
 
@@ -22,9 +22,18 @@ curl -i -X POST http://localhost:8080/v1/profile \
 curl -i -X POST http://localhost:8080/v1/upload-url \
   -H "Content-Type: application/json" \
   -d '{"ext":"webm","content_type":"audio/webm"}'
+curl -i http://localhost:8080/v1/scripts
+curl -i "http://localhost:8080/v1/prompts?script_id=s-basic-vowels"
 ```
 
-`/v1/ping`, `/v1/profile`, and `/v1/upload-url` should return `401` without `Authorization: Bearer <ID_TOKEN>`.
+`/v1/ping`, `/v1/profile`, `/v1/upload-url`, `/v1/scripts`, and `/v1/prompts` should return `401` without `Authorization: Bearer <ID_TOKEN>`.
+
+## Seed Step7 data
+
+```bash
+cd api
+python3 scripts/seed_step7_data.py
+```
 
 ## Deploy to Cloud Run
 

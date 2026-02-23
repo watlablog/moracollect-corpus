@@ -49,6 +49,8 @@ class UploadUrlResponse(BaseModel):
 class RegisterRequest(BaseModel):
     record_id: str
     raw_path: str
+    script_id: str
+    prompt_id: str
     client_meta: dict[str, Any] = Field(default_factory=dict)
     recording_meta: dict[str, Any] = Field(default_factory=dict)
 
@@ -75,3 +77,34 @@ class MyRecordItem(BaseModel):
 class MyRecordsResponse(BaseModel):
     ok: bool
     records: list[MyRecordItem]
+
+
+class ScriptItem(BaseModel):
+    script_id: str
+    title: str
+    description: str
+    order: int
+    is_active: bool
+    prompt_count: int
+    total_records: int
+    unique_speakers: int
+
+
+class ScriptsResponse(BaseModel):
+    ok: bool
+    scripts: list[ScriptItem]
+
+
+class PromptItem(BaseModel):
+    prompt_id: str
+    text: str
+    order: int
+    is_active: bool
+    total_records: int
+    unique_speakers: int
+
+
+class PromptsResponse(BaseModel):
+    ok: bool
+    script_id: str
+    prompts: list[PromptItem]

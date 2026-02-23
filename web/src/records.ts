@@ -1,6 +1,8 @@
 export type RegisterRecordRequest = {
   record_id: string
   raw_path: string
+  script_id: string
+  prompt_id: string
   client_meta: Record<string, unknown>
   recording_meta: Record<string, unknown>
 }

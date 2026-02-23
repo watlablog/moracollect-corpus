@@ -1,0 +1,834 @@
+[
+  {
+    "prompt_id": "p-001",
+    "script_id": "s-gojuon",
+    "text": "あ",
+    "type": "mora",
+    "order": 10,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-002",
+    "script_id": "s-gojuon",
+    "text": "い",
+    "type": "mora",
+    "order": 20,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-003",
+    "script_id": "s-gojuon",
+    "text": "う",
+    "type": "mora",
+    "order": 30,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-004",
+    "script_id": "s-gojuon",
+    "text": "え",
+    "type": "mora",
+    "order": 40,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-005",
+    "script_id": "s-gojuon",
+    "text": "お",
+    "type": "mora",
+    "order": 50,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-006",
+    "script_id": "s-gojuon",
+    "text": "か",
+    "type": "mora",
+    "order": 60,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-007",
+    "script_id": "s-gojuon",
+    "text": "き",
+    "type": "mora",
+    "order": 70,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-008",
+    "script_id": "s-gojuon",
+    "text": "く",
+    "type": "mora",
+    "order": 80,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-009",
+    "script_id": "s-gojuon",
+    "text": "け",
+    "type": "mora",
+    "order": 90,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-010",
+    "script_id": "s-gojuon",
+    "text": "こ",
+    "type": "mora",
+    "order": 100,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-011",
+    "script_id": "s-gojuon",
+    "text": "さ",
+    "type": "mora",
+    "order": 110,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-012",
+    "script_id": "s-gojuon",
+    "text": "し",
+    "type": "mora",
+    "order": 120,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-013",
+    "script_id": "s-gojuon",
+    "text": "す",
+    "type": "mora",
+    "order": 130,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-014",
+    "script_id": "s-gojuon",
+    "text": "せ",
+    "type": "mora",
+    "order": 140,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-015",
+    "script_id": "s-gojuon",
+    "text": "そ",
+    "type": "mora",
+    "order": 150,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-016",
+    "script_id": "s-gojuon",
+    "text": "た",
+    "type": "mora",
+    "order": 160,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-017",
+    "script_id": "s-gojuon",
+    "text": "ち",
+    "type": "mora",
+    "order": 170,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-018",
+    "script_id": "s-gojuon",
+    "text": "つ",
+    "type": "mora",
+    "order": 180,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-019",
+    "script_id": "s-gojuon",
+    "text": "て",
+    "type": "mora",
+    "order": 190,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-020",
+    "script_id": "s-gojuon",
+    "text": "と",
+    "type": "mora",
+    "order": 200,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-021",
+    "script_id": "s-gojuon",
+    "text": "な",
+    "type": "mora",
+    "order": 210,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-022",
+    "script_id": "s-gojuon",
+    "text": "に",
+    "type": "mora",
+    "order": 220,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-023",
+    "script_id": "s-gojuon",
+    "text": "ぬ",
+    "type": "mora",
+    "order": 230,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-024",
+    "script_id": "s-gojuon",
+    "text": "ね",
+    "type": "mora",
+    "order": 240,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-025",
+    "script_id": "s-gojuon",
+    "text": "の",
+    "type": "mora",
+    "order": 250,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-026",
+    "script_id": "s-gojuon",
+    "text": "は",
+    "type": "mora",
+    "order": 260,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-027",
+    "script_id": "s-gojuon",
+    "text": "ひ",
+    "type": "mora",
+    "order": 270,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-028",
+    "script_id": "s-gojuon",
+    "text": "ふ",
+    "type": "mora",
+    "order": 280,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-029",
+    "script_id": "s-gojuon",
+    "text": "へ",
+    "type": "mora",
+    "order": 290,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-030",
+    "script_id": "s-gojuon",
+    "text": "ほ",
+    "type": "mora",
+    "order": 300,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-031",
+    "script_id": "s-gojuon",
+    "text": "ま",
+    "type": "mora",
+    "order": 310,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-032",
+    "script_id": "s-gojuon",
+    "text": "み",
+    "type": "mora",
+    "order": 320,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-033",
+    "script_id": "s-gojuon",
+    "text": "む",
+    "type": "mora",
+    "order": 330,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-034",
+    "script_id": "s-gojuon",
+    "text": "め",
+    "type": "mora",
+    "order": 340,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-035",
+    "script_id": "s-gojuon",
+    "text": "も",
+    "type": "mora",
+    "order": 350,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-036",
+    "script_id": "s-gojuon",
+    "text": "や",
+    "type": "mora",
+    "order": 360,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-037",
+    "script_id": "s-gojuon",
+    "text": "ゆ",
+    "type": "mora",
+    "order": 370,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-038",
+    "script_id": "s-gojuon",
+    "text": "よ",
+    "type": "mora",
+    "order": 380,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-039",
+    "script_id": "s-gojuon",
+    "text": "ら",
+    "type": "mora",
+    "order": 390,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-040",
+    "script_id": "s-gojuon",
+    "text": "り",
+    "type": "mora",
+    "order": 400,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-041",
+    "script_id": "s-gojuon",
+    "text": "る",
+    "type": "mora",
+    "order": 410,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-042",
+    "script_id": "s-gojuon",
+    "text": "れ",
+    "type": "mora",
+    "order": 420,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-043",
+    "script_id": "s-gojuon",
+    "text": "ろ",
+    "type": "mora",
+    "order": 430,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-044",
+    "script_id": "s-gojuon",
+    "text": "わ",
+    "type": "mora",
+    "order": 440,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-045",
+    "script_id": "s-gojuon",
+    "text": "を",
+    "type": "mora",
+    "order": 450,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-046",
+    "script_id": "s-gojuon",
+    "text": "ん",
+    "type": "mora",
+    "order": 460,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-047",
+    "script_id": "s-gojuon",
+    "text": "が",
+    "type": "mora",
+    "order": 470,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-048",
+    "script_id": "s-gojuon",
+    "text": "ぎ",
+    "type": "mora",
+    "order": 480,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-049",
+    "script_id": "s-gojuon",
+    "text": "ぐ",
+    "type": "mora",
+    "order": 490,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-050",
+    "script_id": "s-gojuon",
+    "text": "げ",
+    "type": "mora",
+    "order": 500,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-051",
+    "script_id": "s-gojuon",
+    "text": "ご",
+    "type": "mora",
+    "order": 510,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-052",
+    "script_id": "s-gojuon",
+    "text": "ざ",
+    "type": "mora",
+    "order": 520,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-053",
+    "script_id": "s-gojuon",
+    "text": "じ",
+    "type": "mora",
+    "order": 530,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-054",
+    "script_id": "s-gojuon",
+    "text": "ず",
+    "type": "mora",
+    "order": 540,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-055",
+    "script_id": "s-gojuon",
+    "text": "ぜ",
+    "type": "mora",
+    "order": 550,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-056",
+    "script_id": "s-gojuon",
+    "text": "ぞ",
+    "type": "mora",
+    "order": 560,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-057",
+    "script_id": "s-gojuon",
+    "text": "だ",
+    "type": "mora",
+    "order": 570,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-058",
+    "script_id": "s-gojuon",
+    "text": "ぢ",
+    "type": "mora",
+    "order": 580,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-059",
+    "script_id": "s-gojuon",
+    "text": "づ",
+    "type": "mora",
+    "order": 590,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-060",
+    "script_id": "s-gojuon",
+    "text": "で",
+    "type": "mora",
+    "order": 600,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-061",
+    "script_id": "s-gojuon",
+    "text": "ど",
+    "type": "mora",
+    "order": 610,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-062",
+    "script_id": "s-gojuon",
+    "text": "ば",
+    "type": "mora",
+    "order": 620,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-063",
+    "script_id": "s-gojuon",
+    "text": "び",
+    "type": "mora",
+    "order": 630,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-064",
+    "script_id": "s-gojuon",
+    "text": "ぶ",
+    "type": "mora",
+    "order": 640,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-065",
+    "script_id": "s-gojuon",
+    "text": "べ",
+    "type": "mora",
+    "order": 650,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-066",
+    "script_id": "s-gojuon",
+    "text": "ぼ",
+    "type": "mora",
+    "order": 660,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-067",
+    "script_id": "s-gojuon",
+    "text": "ぱ",
+    "type": "mora",
+    "order": 670,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-068",
+    "script_id": "s-gojuon",
+    "text": "ぴ",
+    "type": "mora",
+    "order": 680,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-069",
+    "script_id": "s-gojuon",
+    "text": "ぷ",
+    "type": "mora",
+    "order": 690,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-070",
+    "script_id": "s-gojuon",
+    "text": "ぺ",
+    "type": "mora",
+    "order": 700,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-071",
+    "script_id": "s-gojuon",
+    "text": "ぽ",
+    "type": "mora",
+    "order": 710,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-072",
+    "script_id": "s-gojuon",
+    "text": "きゃ",
+    "type": "mora",
+    "order": 720,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-073",
+    "script_id": "s-gojuon",
+    "text": "きゅ",
+    "type": "mora",
+    "order": 730,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-074",
+    "script_id": "s-gojuon",
+    "text": "きょ",
+    "type": "mora",
+    "order": 740,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-075",
+    "script_id": "s-gojuon",
+    "text": "ぎゃ",
+    "type": "mora",
+    "order": 750,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-076",
+    "script_id": "s-gojuon",
+    "text": "ぎゅ",
+    "type": "mora",
+    "order": 760,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-077",
+    "script_id": "s-gojuon",
+    "text": "ぎょ",
+    "type": "mora",
+    "order": 770,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-078",
+    "script_id": "s-gojuon",
+    "text": "しゃ",
+    "type": "mora",
+    "order": 780,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-079",
+    "script_id": "s-gojuon",
+    "text": "しゅ",
+    "type": "mora",
+    "order": 790,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-080",
+    "script_id": "s-gojuon",
+    "text": "しょ",
+    "type": "mora",
+    "order": 800,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-081",
+    "script_id": "s-gojuon",
+    "text": "じゃ",
+    "type": "mora",
+    "order": 810,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-082",
+    "script_id": "s-gojuon",
+    "text": "じゅ",
+    "type": "mora",
+    "order": 820,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-083",
+    "script_id": "s-gojuon",
+    "text": "じょ",
+    "type": "mora",
+    "order": 830,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-084",
+    "script_id": "s-gojuon",
+    "text": "ちゃ",
+    "type": "mora",
+    "order": 840,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-085",
+    "script_id": "s-gojuon",
+    "text": "ちゅ",
+    "type": "mora",
+    "order": 850,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-086",
+    "script_id": "s-gojuon",
+    "text": "ちょ",
+    "type": "mora",
+    "order": 860,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-087",
+    "script_id": "s-gojuon",
+    "text": "にゃ",
+    "type": "mora",
+    "order": 870,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-088",
+    "script_id": "s-gojuon",
+    "text": "にゅ",
+    "type": "mora",
+    "order": 880,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-089",
+    "script_id": "s-gojuon",
+    "text": "にょ",
+    "type": "mora",
+    "order": 890,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-090",
+    "script_id": "s-gojuon",
+    "text": "ひゃ",
+    "type": "mora",
+    "order": 900,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-091",
+    "script_id": "s-gojuon",
+    "text": "ひゅ",
+    "type": "mora",
+    "order": 910,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-092",
+    "script_id": "s-gojuon",
+    "text": "ひょ",
+    "type": "mora",
+    "order": 920,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-093",
+    "script_id": "s-gojuon",
+    "text": "びゃ",
+    "type": "mora",
+    "order": 930,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-094",
+    "script_id": "s-gojuon",
+    "text": "びゅ",
+    "type": "mora",
+    "order": 940,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-095",
+    "script_id": "s-gojuon",
+    "text": "びょ",
+    "type": "mora",
+    "order": 950,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-096",
+    "script_id": "s-gojuon",
+    "text": "ぴゃ",
+    "type": "mora",
+    "order": 960,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-097",
+    "script_id": "s-gojuon",
+    "text": "ぴゅ",
+    "type": "mora",
+    "order": 970,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-098",
+    "script_id": "s-gojuon",
+    "text": "ぴょ",
+    "type": "mora",
+    "order": 980,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-099",
+    "script_id": "s-gojuon",
+    "text": "みゃ",
+    "type": "mora",
+    "order": 990,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-100",
+    "script_id": "s-gojuon",
+    "text": "みゅ",
+    "type": "mora",
+    "order": 1000,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-101",
+    "script_id": "s-gojuon",
+    "text": "みょ",
+    "type": "mora",
+    "order": 1010,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-102",
+    "script_id": "s-gojuon",
+    "text": "りゃ",
+    "type": "mora",
+    "order": 1020,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-103",
+    "script_id": "s-gojuon",
+    "text": "りゅ",
+    "type": "mora",
+    "order": 1030,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-104",
+    "script_id": "s-gojuon",
+    "text": "りょ",
+    "type": "mora",
+    "order": 1040,
+    "is_active": true
+  }
+]
