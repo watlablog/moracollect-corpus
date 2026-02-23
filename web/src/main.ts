@@ -174,6 +174,7 @@ let lastRecordingBlob: Blob | null = null
 let lastRecordingMimeType: string | null = null
 let lastRecordingDurationMs: number | null = null
 let uploadInProgress = false
+let uploadCompletedForCurrentRecording = false
 let registerInProgress = false
 let registerRetryEnabled = false
 let pendingRegisterDraft: RegisterDraft | null = null
@@ -291,7 +292,8 @@ function updateUploadButtonState(): void {
     !lastRecordingBlob ||
     !lastRecordingMimeType ||
     recorder.getState() === 'recording' ||
-    uploadInProgress
+    uploadInProgress ||
+    uploadCompletedForCurrentRecording
 }
 
 function resetUploadState(statusText: string): void {
@@ -305,6 +307,7 @@ function clearRecordedUploadSource(statusText: string): void {
   lastRecordingBlob = null
   lastRecordingMimeType = null
   lastRecordingDurationMs = null
+  uploadCompletedForCurrentRecording = false
   resetUploadState(statusText)
 }
 
@@ -478,6 +481,7 @@ function showRecordedAudio(result: RecordingResult): void {
   lastRecordingBlob = result.blob
   lastRecordingMimeType = result.mimeType
   lastRecordingDurationMs = result.durationMs
+  uploadCompletedForCurrentRecording = false
   recordingObjectUrl = URL.createObjectURL(result.blob)
   recordingPreviewEl.src = recordingObjectUrl
   recordingPreviewEl.hidden = false
@@ -746,6 +750,7 @@ async function handleUploadRecording(): Promise<void> {
     )
     uploadStatusEl.textContent = 'Upload status: uploaded'
     uploadPathEl.textContent = `Saved to: ${uploadPlan.raw_path}`
+    uploadCompletedForCurrentRecording = true
 
     pendingRegisterDraft = {
       recordId: uploadPlan.record_id,
