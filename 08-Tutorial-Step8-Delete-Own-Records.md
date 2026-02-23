@@ -45,9 +45,9 @@ Step8.2 での方針:
 
 ```mermaid
 flowchart LR
-  A[Delete click] --> B[DELETE /v1/my-records/{record_id}]
-  B --> C[(records/{record_id}) delete]
-  B --> D[(users/{uid}/records/{record_id}) delete]
+  A[Delete click] --> B[DELETE /v1/my-records/record_id]
+  B --> C[(records/record_id delete)]
+  B --> D[(users/uid/records/record_id delete)]
   B --> E[(Storage raw_path delete)]
   B --> F[(Storage wav_path delete if exists)]
   B --> G[(stats_prompts/stats_scripts decrement)]
@@ -57,7 +57,7 @@ flowchart LR
 ```mermaid
 flowchart LR
   U[UI] -->|GET /v1/scripts| S[(snapshots/scripts_overview/docs/current)]
-  U -->|GET /v1/prompts?script_id=...| P[(snapshots/prompts_by_script/docs/{script_id})]
+  U -->|GET /v1/prompts?script_id=...| P[(snapshots/prompts_by_script/docs/script_id)]
   S -.missing.-> SF[(fallback: scripts/prompts/stats docs)]
   P -.missing.-> PF[(fallback: prompts/stats docs)]
 ```
