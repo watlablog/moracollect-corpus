@@ -15,9 +15,8 @@
 
 今回まだやらないこと:
 
-- wav変換/QC（Step8）
-- 全体ダッシュボード画面（Step9）
-- ランキング詳細（Step10）
+- wav変換/QC（Step10）
+- Top contributors ランキング（Step9）
 
 ---
 
@@ -212,4 +211,4 @@ deactivate
 ## Chapter 8: 次のStep
 
 Step7 で「どの prompt が不足しているか」を見ながら収録できるようになりました。  
-次は Step8（raw->wav変換 + QC）で、学習用データ品質を統一します。
+次は Step8（自分のrecord削除）で、誤登録データを自分で管理できるようにします。

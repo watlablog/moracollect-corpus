@@ -1,5 +1,6 @@
 from datetime import timedelta
 
+from google.api_core.exceptions import NotFound
 from google.auth.credentials import Credentials, with_scopes_if_required
 from google.auth.transport.requests import Request
 from google.cloud import storage
@@ -60,3 +61,13 @@ def object_exists(bucket_name: str, object_path: str) -> bool:
     client = storage.Client()
     blob = client.bucket(bucket_name).blob(object_path)
     return bool(blob.exists())
+
+
+def delete_object_if_exists(bucket_name: str, object_path: str) -> None:
+    client = storage.Client()
+    blob = client.bucket(bucket_name).blob(object_path)
+    try:
+        blob.delete()
+    except NotFound:
+        # Deletion is idempotent for missing objects.
+        return

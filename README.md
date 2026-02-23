@@ -1,7 +1,7 @@
 # MoraCollect
 
 MoraCollect is a corpus collection web app.
-This repository currently implements Step 0-7 scope from `DESIGN.md`:
+This repository currently implements Step 0-8 scope from `DESIGN.md`:
 
 - Step 0: public web page on Firebase Hosting
 - Step 1: Google sign-in/sign-out with Firebase Auth
@@ -11,6 +11,7 @@ This repository currently implements Step 0-7 scope from `DESIGN.md`:
 - Step 5: signed URL issue + manual upload to Cloud Storage
 - Step 6: register metadata (`/v1/register`) + my records (`/v1/my-records`)
 - Step 7: script/prompt selection UI + prompt progress stats (`total_records`, `unique_speakers`)
+- Step 8: delete own records (Firestore + Storage) via `DELETE /v1/my-records/{record_id}`
 
 Beginner tutorials (JP):
 
@@ -21,6 +22,7 @@ Beginner tutorials (JP):
 - `05-Tutorial-Step5-Upload-URL.md`
 - `06-Tutorial-Step6-Register-Records.md`
 - `07-Tutorial-Step7-Prompt-Selection.md`
+- `08-Tutorial-Step8-Delete-Own-Records.md`
 
 ## Tech stack (current)
 
@@ -493,3 +495,43 @@ firebase deploy --only hosting
 - Old scripts/prompts still shown in UI
   - cause: legacy Firestore seed data remains
   - fix: rerun `seed_step7_data.py` (it prunes missing `scripts/prompts`)
+
+## 11. Step8: Delete own records (hard delete)
+
+### 11-1. New API endpoint
+
+- `DELETE /v1/my-records/{record_id}` (auth required)
+  - deletes:
+    - `records/{record_id}`
+    - `users/{uid}/records/{record_id}`
+    - Storage object at `raw_path`
+    - Storage object at `wav_path` when present
+  - updates:
+    - `stats_prompts/{prompt_id}`
+    - `stats_scripts/{script_id}`
+    - prompt/script speaker docs (`.../speakers/{uid}`) when needed
+
+### 11-2. Error rules
+
+- `401`: auth invalid
+- `403`: record belongs to different uid
+- `404`: record not found
+- `500`: storage delete permission denied (`Storage delete permission denied`)
+- `500`: delete operation failed
+
+### 11-3. Web behavior
+
+- `My records` list now has a `Delete` button per row
+- Click -> confirmation dialog
+- On success:
+  - record disappears from My records
+  - script/prompt counts are refreshed without full page reload
+
+### 11-4. Quick verification
+
+1. Sign in
+2. Upload/Register one record
+3. Click `Delete` on that record
+4. Confirm:
+  - `My records` no longer contains the record
+  - selected prompt/script count values decrease

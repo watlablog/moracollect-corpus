@@ -79,6 +79,12 @@ class MyRecordsResponse(BaseModel):
     records: list[MyRecordItem]
 
 
+class DeleteMyRecordResponse(BaseModel):
+    ok: bool
+    record_id: str
+    deleted: bool
+
+
 class ScriptItem(BaseModel):
     script_id: str
     title: str

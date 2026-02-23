@@ -1,4 +1,4 @@
-# API (Step2-Step7)
+# API (Step2-Step8)
 
 ## Local run
 
@@ -24,9 +24,10 @@ curl -i -X POST http://localhost:8080/v1/upload-url \
   -d '{"ext":"webm","content_type":"audio/webm"}'
 curl -i http://localhost:8080/v1/scripts
 curl -i "http://localhost:8080/v1/prompts?script_id=s-basic-vowels"
+curl -i -X DELETE http://localhost:8080/v1/my-records/00000000-0000-0000-0000-000000000000
 ```
 
-`/v1/ping`, `/v1/profile`, `/v1/upload-url`, `/v1/scripts`, and `/v1/prompts` should return `401` without `Authorization: Bearer <ID_TOKEN>`.
+`/v1/ping`, `/v1/profile`, `/v1/upload-url`, `/v1/scripts`, `/v1/prompts`, and `DELETE /v1/my-records/{record_id}` should return `401` without `Authorization: Bearer <ID_TOKEN>`.
 
 ## Seed Step7 data
 

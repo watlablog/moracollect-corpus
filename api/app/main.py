@@ -6,9 +6,10 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Path, Query, status
 from fastapi.middleware.cors import CORSMiddleware
 from firebase_admin import firestore as admin_firestore
+from google.api_core.exceptions import Forbidden
 
 from app.auth import get_uid_from_token, verify_id_token
 from app.firestore import (
@@ -27,6 +28,7 @@ from app.firestore import (
     get_user_records_collection,
 )
 from app.models import (
+    DeleteMyRecordResponse,
     HealthResponse,
     MyRecordItem,
     MyRecordsResponse,
@@ -45,6 +47,7 @@ from app.models import (
 )
 from app.storage import (
     build_raw_object_path,
+    delete_object_if_exists,
     generate_upload_signed_url,
     object_exists,
 )
@@ -79,7 +82,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -376,6 +379,7 @@ def create_record_and_update_stats(
     *,
     record_ref: admin_firestore.DocumentReference,
     user_record_ref: admin_firestore.DocumentReference,
+    user_ref: admin_firestore.DocumentReference,
     prompt_stats_ref: admin_firestore.DocumentReference,
     prompt_speaker_ref: admin_firestore.DocumentReference,
     script_stats_ref: admin_firestore.DocumentReference,
@@ -390,6 +394,14 @@ def create_record_and_update_stats(
 
     transaction.set(record_ref, record_doc)
     transaction.set(user_record_ref, user_record_doc)
+    transaction.set(
+        user_ref,
+        {
+            "contribution_count": admin_firestore.Increment(1),
+            "updated_at": admin_firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
     transaction.set(
         prompt_stats_ref,
         {
@@ -445,6 +457,24 @@ def create_record_and_update_stats(
             },
             merge=True,
         )
+
+
+def has_other_user_record(
+    user_records_collection: admin_firestore.CollectionReference,
+    *,
+    field_name: str,
+    field_value: str,
+    current_record_id: str,
+) -> bool:
+    snapshots = (
+        user_records_collection.where(field_name, "==", field_value)
+        .limit(2)
+        .stream()
+    )
+    for snapshot in snapshots:
+        if snapshot.id != current_record_id:
+            return True
+    return False
 
 
 @app.get("/v1/profile", response_model=ProfileGetResponse)
@@ -636,6 +666,7 @@ def post_register(
         ) from exc
 
     record_ref = get_record_doc_ref(record_id)
+    user_ref = get_user_doc_ref(uid)
     user_record_ref = get_user_record_doc_ref(uid, record_id)
     prompt_stats_ref = get_prompt_stats_doc_ref(prompt_id)
     prompt_speaker_ref = get_prompt_speaker_doc_ref(prompt_id, uid)
@@ -749,6 +780,7 @@ def post_register(
             transaction,
             record_ref=record_ref,
             user_record_ref=user_record_ref,
+            user_ref=user_ref,
             prompt_stats_ref=prompt_stats_ref,
             prompt_speaker_ref=prompt_speaker_ref,
             script_stats_ref=script_stats_ref,
@@ -828,3 +860,198 @@ def get_my_records(
         )
 
     return MyRecordsResponse(ok=True, records=records)
+
+
+@app.delete(
+    "/v1/my-records/{record_id}",
+    response_model=DeleteMyRecordResponse,
+)
+def delete_my_record(
+    record_id: str = Path(...),
+    decoded_token: dict = Depends(verify_id_token),
+) -> DeleteMyRecordResponse:
+    if not STORAGE_BUCKET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Storage bucket is not configured",
+        )
+
+    uid = get_uid_from_token(decoded_token)
+    normalized_record_id = normalize_record_id(record_id)
+    record_ref = get_record_doc_ref(normalized_record_id)
+    user_ref = get_user_doc_ref(uid)
+    user_record_ref = get_user_record_doc_ref(uid, normalized_record_id)
+
+    try:
+        record_snapshot = record_ref.get()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load record",
+        ) from exc
+
+    if not record_snapshot.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="record not found",
+        )
+
+    record_data = record_snapshot.to_dict() or {}
+    record_uid = as_optional_str(record_data.get("uid"))
+    if not record_uid:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="record metadata is invalid",
+        )
+    if record_uid != uid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="record does not belong to authenticated user",
+        )
+
+    prompt_id = as_optional_str(record_data.get("prompt_id"))
+    script_id = as_optional_str(record_data.get("script_id"))
+    raw_path = as_optional_str(record_data.get("raw_path"))
+    wav_path = as_optional_str(record_data.get("wav_path"))
+    if not prompt_id or not script_id or not raw_path:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="record metadata is invalid",
+        )
+
+    prompt_stats_ref = get_prompt_stats_doc_ref(prompt_id)
+    prompt_speaker_ref = get_prompt_speaker_doc_ref(prompt_id, uid)
+    script_stats_ref = get_script_stats_doc_ref(script_id)
+    script_speaker_ref = get_script_speaker_doc_ref(script_id, uid)
+    user_records_collection = get_user_records_collection(uid)
+
+    try:
+        has_other_prompt_record = has_other_user_record(
+            user_records_collection,
+            field_name="prompt_id",
+            field_value=prompt_id,
+            current_record_id=normalized_record_id,
+        )
+        has_other_script_record = has_other_user_record(
+            user_records_collection,
+            field_name="script_id",
+            field_value=script_id,
+            current_record_id=normalized_record_id,
+        )
+
+        user_snapshot = user_ref.get()
+        user_data = user_snapshot.to_dict() if user_snapshot.exists else {}
+        previous_contribution_count = (
+            as_optional_int(user_data.get("contribution_count")) or 0
+        )
+        next_contribution_count = max(0, previous_contribution_count - 1)
+
+        prompt_stats_snapshot = prompt_stats_ref.get()
+        prompt_stats_data = (
+            prompt_stats_snapshot.to_dict() if prompt_stats_snapshot.exists else {}
+        )
+        next_prompt_total = max(
+            0,
+            (as_optional_int(prompt_stats_data.get("total_records")) or 0) - 1,
+        )
+        next_prompt_unique = max(
+            0,
+            (as_optional_int(prompt_stats_data.get("unique_speakers")) or 0)
+            - (0 if has_other_prompt_record else 1),
+        )
+
+        script_stats_snapshot = script_stats_ref.get()
+        script_stats_data = (
+            script_stats_snapshot.to_dict() if script_stats_snapshot.exists else {}
+        )
+        next_script_total = max(
+            0,
+            (as_optional_int(script_stats_data.get("total_records")) or 0) - 1,
+        )
+        next_script_unique = max(
+            0,
+            (as_optional_int(script_stats_data.get("unique_speakers")) or 0)
+            - (0 if has_other_script_record else 1),
+        )
+
+        delete_object_if_exists(STORAGE_BUCKET, raw_path)
+        if wav_path:
+            delete_object_if_exists(STORAGE_BUCKET, wav_path)
+
+        batch = get_firestore_client().batch()
+        batch.set(
+            user_ref,
+            {
+                "contribution_count": next_contribution_count,
+                "updated_at": admin_firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        batch.set(
+            prompt_stats_ref,
+            {
+                "total_records": next_prompt_total,
+                "updated_at": admin_firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        if not has_other_prompt_record:
+            batch.set(
+                prompt_stats_ref,
+                {
+                    "unique_speakers": next_prompt_unique,
+                    "updated_at": admin_firestore.SERVER_TIMESTAMP,
+                },
+                merge=True,
+            )
+            batch.delete(prompt_speaker_ref)
+
+        batch.set(
+            script_stats_ref,
+            {
+                "total_records": next_script_total,
+                "updated_at": admin_firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        if not has_other_script_record:
+            batch.set(
+                script_stats_ref,
+                {
+                    "unique_speakers": next_script_unique,
+                    "updated_at": admin_firestore.SERVER_TIMESTAMP,
+                },
+                merge=True,
+            )
+            batch.delete(script_speaker_ref)
+
+        batch.delete(user_record_ref)
+        batch.delete(record_ref)
+        batch.commit()
+    except Forbidden as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Storage delete permission denied",
+        ) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Failed to delete record: uid=%s record_id=%s raw_path=%s wav_path=%s error_type=%s error=%s",
+            uid,
+            normalized_record_id,
+            raw_path,
+            wav_path or "",
+            type(exc).__name__,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete record",
+        ) from exc
+
+    return DeleteMyRecordResponse(
+        ok=True,
+        record_id=normalized_record_id,
+        deleted=True,
+    )

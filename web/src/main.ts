@@ -23,6 +23,7 @@ import {
   toWaveformLine,
 } from './waveform'
 import {
+  deleteMyRecord,
   fetchMyRecords,
   registerRecord,
   type MyRecordItem,
@@ -204,6 +205,8 @@ let uploadCompletedForCurrentRecording = false
 let registerInProgress = false
 let registerRetryEnabled = false
 let pendingRegisterDraft: RegisterDraft | null = null
+let myRecordsItems: MyRecordItem[] = []
+const deletingRecordIds = new Set<string>()
 let availableScripts: ScriptItem[] = []
 let availablePrompts: PromptItem[] = []
 let selectedScriptId: string | null = null
@@ -606,7 +609,28 @@ function renderMyRecords(items: MyRecordItem[]): void {
       typeof item.duration_ms === 'number'
         ? `${(item.duration_ms / 1000).toFixed(1)}s`
         : 'duration: -'
-    li.textContent = `${item.record_id} | ${item.status} | ${durationLabel} | ${sizeLabel} | ${formatRecordDate(item.created_at)}`
+    const row = document.createElement('div')
+    row.className = 'my-record-row'
+
+    const meta = document.createElement('span')
+    meta.className = 'my-record-meta'
+    meta.textContent = `${item.record_id} | ${item.status} | ${durationLabel} | ${sizeLabel} | ${formatRecordDate(item.created_at)}`
+
+    const deleteButton = document.createElement('button')
+    deleteButton.type = 'button'
+    deleteButton.className = 'ghost my-record-delete'
+    deleteButton.textContent = deletingRecordIds.has(item.record_id)
+      ? 'Deleting...'
+      : 'Delete'
+    deleteButton.disabled =
+      !currentUser ||
+      deletingRecordIds.has(item.record_id)
+    deleteButton.addEventListener('click', () => {
+      void handleDeleteMyRecord(item.record_id)
+    })
+
+    row.append(meta, deleteButton)
+    li.append(row)
     myRecordsListEl.append(li)
   }
 }
@@ -804,11 +828,49 @@ async function loadMyRecords(user: User): Promise<void> {
   try {
     const idToken = await user.getIdToken()
     const response = await fetchMyRecords(idToken, MY_RECORDS_LIMIT)
-    renderMyRecords(response.records)
-    myRecordsStatusEl.textContent = `My records: loaded (${response.records.length})`
+    myRecordsItems = response.records
+    renderMyRecords(myRecordsItems)
+    myRecordsStatusEl.textContent = `My records: loaded (${myRecordsItems.length})`
   } catch (error) {
-    renderMyRecords([])
+    myRecordsItems = []
+    renderMyRecords(myRecordsItems)
     myRecordsStatusEl.textContent = `My records: failed (${getApiErrorMessage(error)})`
+  }
+}
+
+async function handleDeleteMyRecord(recordId: string): Promise<void> {
+  if (!currentUser) {
+    myRecordsStatusEl.textContent = 'My records: sign in first'
+    return
+  }
+  if (deletingRecordIds.has(recordId)) {
+    return
+  }
+
+  const shouldDelete = window.confirm(
+    'Delete this record permanently from Firestore and Storage?',
+  )
+  if (!shouldDelete) {
+    return
+  }
+
+  deletingRecordIds.add(recordId)
+  renderMyRecords(myRecordsItems)
+  myRecordsStatusEl.textContent = 'My records: deleting ...'
+
+  try {
+    const idToken = await currentUser.getIdToken()
+    await deleteMyRecord(idToken, recordId)
+    if (pendingRegisterDraft?.recordId === recordId) {
+      clearRegisterDraft('Register status: waiting for upload')
+    }
+    await loadMyRecords(currentUser)
+    await loadScriptsAndPrompts(currentUser, true)
+  } catch (error) {
+    myRecordsStatusEl.textContent = `My records: delete failed (${getApiErrorMessage(error)})`
+  } finally {
+    deletingRecordIds.delete(recordId)
+    renderMyRecords(myRecordsItems)
   }
 }
 
@@ -1121,6 +1183,7 @@ if (auth) {
       void runPing(user)
       void loadMyRecords(user)
     } else {
+      deletingRecordIds.clear()
       setProfileControlsDisabled(true)
       displayNameInput.value = ''
       profileStatusEl.textContent = 'Profile status: waiting for sign-in'
@@ -1129,6 +1192,7 @@ if (auth) {
       apiResultEl.textContent = ''
       resetRegisterState('Register status: waiting for sign-in')
       myRecordsStatusEl.textContent = 'My records: waiting for sign-in'
+      myRecordsItems = []
       myRecordsListEl.innerHTML = ''
       void setRecordingSignedOutState()
     }

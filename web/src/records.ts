@@ -31,6 +31,12 @@ export type MyRecordsResponse = {
   records: MyRecordItem[]
 }
 
+export type DeleteMyRecordResponse = {
+  ok: boolean
+  record_id: string
+  deleted: boolean
+}
+
 function getApiBaseUrl(): string {
   const baseUrl = import.meta.env.VITE_API_BASE_URL
   if (!baseUrl || typeof baseUrl !== 'string') {
@@ -91,4 +97,25 @@ export async function fetchMyRecords(
   }
 
   return (await response.json()) as MyRecordsResponse
+}
+
+export async function deleteMyRecord(
+  idToken: string,
+  recordId: string,
+): Promise<DeleteMyRecordResponse> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/v1/my-records/${encodeURIComponent(recordId)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(await parseError(response))
+  }
+
+  return (await response.json()) as DeleteMyRecordResponse
 }

@@ -10,7 +10,7 @@
 > 強制アライメント（pydomino）や最終的な耳チェックは別工程とし、このWebアプリは「収集・整理・可視化（進捗/ランキング）」に集中します。
 
 ### 0.1 現在地（2026-02-23時点）
-- Step0〜Step7 は完了
+- Step0〜Step8 は完了
   - Step0: Hosting公開
   - Step1: Firebase Auth（Google）ログイン
   - Step2: 認証付き `/v1/ping`
@@ -19,12 +19,13 @@
   - Step5: 署名付きURLアップロード（`/v1/upload-url`）
   - Step6: records登録（`/v1/register`, `/v1/my-records`）
   - Step7: 任意prompt選択 + 件数可視化（`/v1/scripts`, `/v1/prompts`）
+  - Step8: 自分のrecord削除（`DELETE /v1/my-records/{record_id}`）
 - 実装済み要素: Auth / Profile / Recording / Waveform / Upload / Register / My records / Script & Prompt selection
 - Step7の標準データ:
   - script: `s-gojuon`（表示名 `50音`）1件
   - prompts: 104件（清音46 + 濁音/半濁音25 + 拗音33）
   - 表示順: `order` による固定50音順
-- 次アクション: **Step8（raw->wav変換 + QC）**
+- 次アクション: **Step9（Top contributors ランキング）**
 
 ---
 
@@ -175,7 +176,7 @@ moracollect-corpus/
   - `ok`: bool
   - `notes`: string（任意）
 
-> `qc` は主に Step8 で更新。Step6時点では未設定でもよい。
+> `qc` は主に Step10 で更新。Step6時点では未設定でもよい。
 
 ### 5.5 users配下の履歴ミラー（Step6）
 `users/{uid}/records/{record_id}`
@@ -498,7 +499,7 @@ moracollect-corpus/
   - retry
 - Out
   - prompts/scripts UI（Step7）
-  - raw→wav/QC（Step8）
+  - raw→wav/QC（Step10）
   - 既存rawのbackfillツール
 
 **データフロー（Step6）**
@@ -572,7 +573,41 @@ flowchart LR
 
 ---
 
-### Step 8: raw → wav(16kHz) 変換 + QC（Cloud Run Jobs）
+### Step 8: 自分のrecord削除（Firestore + Storage）
+**実装**
+- `DELETE /v1/my-records/{record_id}` を追加
+- records / users配下mirror / Storage(raw,wav) を削除
+- `stats_prompts` / `stats_scripts` を減算更新
+- 削除後にUI件数を再取得して反映
+
+**テスト**
+- 自分のrecord削除で `200`
+- 他人recordは `403`
+- 削除後に `My records` から消える
+- prompt/script 件数が必要に応じて減る
+
+**合格条件**
+- ユーザーが自分の誤登録データを安全に削除できる
+
+---
+
+### Step 9: コントリビュートランキング
+**実装**
+- `GET /v1/leaderboard` を実装
+- `users/{uid}.contribution_count` を register/delete 成功時に更新
+- Top contributors をフロント表示
+
+**テスト**
+- register成功で件数が増える
+- delete成功で件数が減る
+- 同点時の並びが安定する
+
+**合格条件**
+- 最貢献ユーザーを全員が確認できる
+
+---
+
+### Step 10: raw → wav(16kHz) 変換 + QC（Cloud Run Jobs）
 **実装**
 - Job を手動実行して変換確認
 - 変換後に `wav_path` と `qc` と `status=processed` を更新
@@ -584,36 +619,6 @@ flowchart LR
 
 **合格条件**
 - 学習用に統一されたwavが得られる
-
----
-
-### Step 9: 進捗ダッシュボード（script別の人数/件数）
-**実装**
-- `stats_scripts/{script_id}` を更新（Job内で更新）
-- `/v1/dashboard/scripts` を実装
-
-**テスト**
-- 収録で total_records が増える
-- ユニーク話者数が増える
-- UIに反映される
-
-**合格条件**
-- コミュニティ全体の進捗が見える
-
----
-
-### Step 10: コントリビュートランキング
-**実装**
-- `stats/users` と `leaderboards` を更新
-- `/v1/leaderboard` で上位N表示
-
-**テスト**
-- 収録でカウントが増える
-- 表示名が反映される
-- is_hidden で除外できる
-
-**合格条件**
-- 参加者のモチベーションが回る
 
 ---
 
@@ -641,6 +646,14 @@ flowchart LR
 - `prompt` が `script` に属さない場合は `400`
 - register成功時に `stats_prompts` / `stats_scripts` が更新される
 - 同一話者の同一prompt再登録で `unique_speakers` は増えない
+
+### 12.3 Step8 詳細DoD（自分のrecord削除）
+- `DELETE /v1/my-records/{record_id}` で自分のrecordのみ削除できる
+- records / users配下mirror / Storage(raw,wav) が削除される
+- 削除後に `stats_prompts` / `stats_scripts` が整合した値に更新される
+- 未認証は `401`
+- 他人recordは `403`
+- 不存在recordは `404`
 
 ---
 
@@ -683,7 +696,7 @@ flowchart LR
 
 ---
 
-## 17. 実装時につまずきやすい点（Step0〜Step7）
+## 17. 実装時につまずきやすい点（Step0〜Step8）
 ### 17.1 セットアップ系
 - `Failed to get Firebase project your-firebase-project-id`
   - 原因: `.firebaserc` がプレースホルダのまま
@@ -730,3 +743,11 @@ flowchart LR
 - 旧script/promptがUIに残る
   - 原因: Firestoreに旧seedデータが残存
   - 対処: `seed_step7_data.py` を再実行（seed未定義の `scripts/prompts` を prune）
+
+### 17.5 Step8 削除系
+- `delete failed (record not found)`
+  - 原因: 既に削除済み、または古い画面状態
+  - 対処: `My records` を再取得してから再確認
+- `delete failed (record does not belong to authenticated user)`
+  - 原因: 他人recordの削除要求
+  - 対処: 自分の `My records` からのみ削除操作する
