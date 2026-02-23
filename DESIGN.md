@@ -19,8 +19,8 @@
   - Step5: 署名付きURLアップロード（`/v1/upload-url`）
   - Step6: records登録（`/v1/register`, `/v1/my-records`）
   - Step7: 任意prompt選択 + 件数可視化（`/v1/scripts`, `/v1/prompts`）
-  - Step8: 自分のrecord削除（`DELETE /v1/my-records/{record_id}`）
-- 実装済み要素: Auth / Profile / Recording / Waveform / Upload / Register / My records / Script & Prompt selection
+  - Step8: 自分のrecord削除 + My records再読込 + read最小化（手動Refresh + snapshot）
+- 実装済み要素: Auth / Profile / Recording / Waveform / Upload / Register / My records / My records playback load / Script & Prompt selection / Read-minimized stats fetch
 - Step7の標準データ:
   - script: `s-gojuon`（表示名 `50音`）1件
   - prompts: 104件（清音46 + 濁音/半濁音25 + 拗音33）
@@ -185,6 +185,7 @@ moracollect-corpus/
 - `raw_path`: string
 - `script_id`: string
 - `prompt_id`: string
+- `prompt_text`: string（Step8で追加。`GET /v1/my-records` の軽量表示用）
 - `mime_type`: string
 - `size_bytes`: number
 - `duration_ms`: number
@@ -224,6 +225,24 @@ moracollect-corpus/
 
 > period例: `all`, `weekly-2026-W07`, `monthly-2026-02`
 
+### 5.8 scripts/prompts の read最適化スナップショット（Step8.2）
+`snapshots/scripts_overview/docs/current`
+- `scripts_map`: map
+  - key: `script_id`
+  - value: `script_id/title/description/order/is_active/prompt_count/total_records/unique_speakers`
+- `updated_at`
+
+`snapshots/prompts_by_script/docs/{script_id}`
+- `script_id`
+- `prompts_map`: map
+  - key: `prompt_id`
+  - value: `prompt_id/text/order/is_active/total_records/unique_speakers`
+- `updated_at`
+
+> 役割: `GET /v1/scripts` と `GET /v1/prompts` を「1doc読み中心」にするためのキャッシュ。  
+> 正本は `scripts/prompts/stats_*`。  
+> seed更新後は `api/scripts/build_stats_snapshots.py` で再構築する。
+
 ---
 
 ## 6. Cloud Storage パス設計（推奨）
@@ -257,6 +276,10 @@ moracollect-corpus/
   - body: `{record_id, raw_path, script_id, prompt_id, client_meta, recording_meta}`
 - `GET /v1/my-records?limit=...`  
   - 自分の収録履歴
+- `GET /v1/my-records/{record_id}/playback-url`
+  - 自分の raw 音声を再生するための署名付きGET URLを返す
+- `DELETE /v1/my-records/{record_id}`
+  - 自分の record を Firestore + Storage から完全削除
 
 #### Profile
 - `GET /v1/profile`
@@ -306,6 +329,9 @@ moracollect-corpus/
   - `ok: true`
   - `scripts: []`
   - 各要素: `script_id/title/description/order/is_active/prompt_count/total_records/unique_speakers`
+- 実装方針（Step8.2）
+  - まず `snapshots/scripts_overview/docs/current` を読む
+  - snapshot未存在時のみ従来集計読み（fallback）へ退避
 
 #### `GET /v1/prompts?script_id=...`（auth required）
 - Response
@@ -313,15 +339,40 @@ moracollect-corpus/
   - `script_id`
   - `prompts: []`
   - 各要素: `prompt_id/text/order/is_active/total_records/unique_speakers`
+- 実装方針（Step8.2）
+  - まず `snapshots/prompts_by_script/docs/{script_id}` を読む
+  - snapshot未存在時のみ従来読取（fallback）へ退避
 
 #### `GET /v1/my-records?limit=...`（auth required）
 - Response
   - `ok: true`
   - `records: []`（自分の履歴のみ）
-  - 各要素: `record_id/status/script_id/prompt_id/raw_path/mime_type/size_bytes/duration_ms/created_at`
+  - 各要素: `record_id/status/script_id/prompt_id/prompt_text/raw_path/mime_type/size_bytes/duration_ms/created_at`
 - limit
   - 既定: `20`
   - 上限: `50`
+
+#### `GET /v1/my-records/{record_id}/playback-url`（auth required）
+- Response
+  - `ok: true`
+  - `record_id`
+  - `raw_path`
+  - `mime_type`
+  - `playback_url`（署名付きGET URL）
+  - `expires_in_sec`（既定: 600）
+- 備考
+  - URL期限切れ時はフロントで1回だけ自動再取得して再試行する（Step8.1）
+
+#### `DELETE /v1/my-records/{record_id}`（auth required）
+- 成功
+  - `ok: true`
+  - `record_id`
+  - `deleted: true`
+- エラー
+  - `401`: 未認証
+  - `403`: 他人record
+  - `404`: record not found
+  - `500`: delete failed
 
 ---
 
@@ -564,7 +615,7 @@ flowchart LR
 - promptボタンは `total_records / unique_speakers` を表示する
 - promptを任意選択して録音→upload→registerが成功する
 - promptごとに複数takeが取れる
-- register直後に該当promptの件数表示が更新される
+- register直後は表示を維持し、`Refresh counts` 実行時に件数が更新される（Step8.2）
 - 同一話者の再録音で `unique_speakers` は増えない
 
 **合格条件**
@@ -578,16 +629,27 @@ flowchart LR
 - `DELETE /v1/my-records/{record_id}` を追加
 - records / users配下mirror / Storage(raw,wav) を削除
 - `stats_prompts` / `stats_scripts` を減算更新
-- 削除後にUI件数を再取得して反映
+- `GET /v1/my-records/{record_id}/playback-url` を追加（自分の音声再確認）
+- URL期限切れ時の自動再取得リトライ（1回）を追加
+- **Step8.2 read最小化**
+  - register/delete 後の scripts/prompts 自動再取得を停止
+  - scripts/prompts は手動 `Refresh counts` で更新
+  - `GET /v1/scripts` と `GET /v1/prompts` を snapshot-first 読みへ変更
+  - register/delete transaction で snapshot も同期更新
+  - snapshot再構築スクリプト `api/scripts/build_stats_snapshots.py` を追加
 
 **テスト**
 - 自分のrecord削除で `200`
 - 他人recordは `403`
 - 削除後に `My records` から消える
-- prompt/script 件数が必要に応じて減る
+- prompt/script 件数が必要に応じて減る（手動 `Refresh counts` で確認）
+- `Load` で自分の音声再生と波形再表示ができる
+- 署名付きURL期限切れ時に1回自動再取得して復旧する
+- ログイン直後の scripts/prompts 読みが snapshot 1docずつ中心で動く
 
 **合格条件**
 - ユーザーが自分の誤登録データを安全に削除できる
+- 高頻度操作でも Firestore read を抑えながら運用できる
 
 ---
 
@@ -654,6 +716,14 @@ flowchart LR
 - 未認証は `401`
 - 他人recordは `403`
 - 不存在recordは `404`
+
+### 12.4 Step8.2 詳細DoD（read最小化）
+- register/delete 後に scripts/prompts の自動再取得が走らない
+- `Refresh counts` 実行時のみ scripts/prompts が再取得される
+- `GET /v1/scripts` が snapshot doc（`snapshots/scripts_overview/docs/current`）を優先利用する
+- `GET /v1/prompts` が snapshot doc（`snapshots/prompts_by_script/docs/{script_id}`）を優先利用する
+- snapshot欠損時に fallback経路でAPIは継続動作する
+- `GET /v1/my-records` は `prompt_text` を返し、prompt docの追加読取を不要化する
 
 ---
 
@@ -751,3 +821,11 @@ flowchart LR
 - `delete failed (record does not belong to authenticated user)`
   - 原因: 他人recordの削除要求
   - 対処: 自分の `My records` からのみ削除操作する
+- `My records: load failed (Not Found)`
+  - 原因候補: Storage側rawオブジェクトが既に無い、または `raw_path` 不整合
+  - 対処: 対象recordを削除するか、再録音して新規登録する
+- Firestore read が想定より早く消費される
+  - 原因候補: scripts/prompts を頻繁に自動再取得している、snapshot未構築でfallbackを踏んでいる
+  - 対処:
+    - UIは `Refresh counts` のみで更新する運用にする
+    - `python3 api/scripts/build_stats_snapshots.py` を実行し snapshot を再生成する

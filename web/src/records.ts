@@ -19,6 +19,7 @@ export type MyRecordItem = {
   status: string
   script_id: string
   prompt_id: string
+  prompt_text?: string | null
   raw_path: string
   mime_type: string | null
   size_bytes: number | null
@@ -35,6 +36,15 @@ export type DeleteMyRecordResponse = {
   ok: boolean
   record_id: string
   deleted: boolean
+}
+
+export type MyRecordPlaybackUrlResponse = {
+  ok: boolean
+  record_id: string
+  raw_path: string
+  mime_type: string | null
+  playback_url: string
+  expires_in_sec: number
 }
 
 function getApiBaseUrl(): string {
@@ -118,4 +128,78 @@ export async function deleteMyRecord(
   }
 
   return (await response.json()) as DeleteMyRecordResponse
+}
+
+export async function fetchMyRecordPlaybackUrl(
+  idToken: string,
+  recordId: string,
+): Promise<MyRecordPlaybackUrlResponse> {
+  const response = await fetch(
+    `${getApiBaseUrl()}/v1/my-records/${encodeURIComponent(recordId)}/playback-url`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${idToken}`,
+      },
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(await parseError(response))
+  }
+
+  return (await response.json()) as MyRecordPlaybackUrlResponse
+}
+
+type SignedUrlFetchError = Error & {
+  retryableExpired?: boolean
+}
+
+function isRetryableSignedUrlError(error: unknown): boolean {
+  return Boolean(
+    typeof error === 'object' &&
+      error !== null &&
+      'retryableExpired' in error &&
+      (error as SignedUrlFetchError).retryableExpired,
+  )
+}
+
+async function fetchBlobFromSignedPlaybackUrl(url: string): Promise<Blob> {
+  const response = await fetch(url, { method: 'GET' })
+  if (!response.ok) {
+    const bodyText = (await response.text()).slice(0, 400).trim()
+    const lowerBody = bodyText.toLowerCase()
+    const retryableExpired =
+      (response.status === 401 || response.status === 403) &&
+      (lowerBody.includes('expired') ||
+        lowerBody.includes('request has expired') ||
+        lowerBody.includes('signature'))
+
+    const suffix = bodyText ? ` (${bodyText})` : ''
+    const error = new Error(
+      `Failed to load audio: HTTP ${response.status}${suffix}`,
+    ) as SignedUrlFetchError
+    error.retryableExpired = retryableExpired
+    throw error
+  }
+  return await response.blob()
+}
+
+export async function fetchRecordPlaybackBlobWithAutoRetry(
+  idToken: string,
+  recordId: string,
+  onRetry?: () => void,
+): Promise<Blob> {
+  const firstPlan = await fetchMyRecordPlaybackUrl(idToken, recordId)
+  try {
+    return await fetchBlobFromSignedPlaybackUrl(firstPlan.playback_url)
+  } catch (error) {
+    if (!isRetryableSignedUrlError(error)) {
+      throw error
+    }
+
+    onRetry?.()
+    const secondPlan = await fetchMyRecordPlaybackUrl(idToken, recordId)
+    return await fetchBlobFromSignedPlaybackUrl(secondPlan.playback_url)
+  }
 }

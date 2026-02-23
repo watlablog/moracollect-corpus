@@ -57,6 +57,25 @@ def generate_upload_signed_url(
     )
 
 
+def generate_download_signed_url(
+    bucket_name: str,
+    object_path: str,
+    expires_sec: int,
+) -> str:
+    client = storage.Client()
+    blob = client.bucket(bucket_name).blob(object_path)
+    service_account_email, access_token = resolve_signing_identity(client)
+    return str(
+        blob.generate_signed_url(
+            version="v4",
+            expiration=timedelta(seconds=expires_sec),
+            method="GET",
+            service_account_email=service_account_email,
+            access_token=access_token,
+        )
+    )
+
+
 def object_exists(bucket_name: str, object_path: str) -> bool:
     client = storage.Client()
     blob = client.bucket(bucket_name).blob(object_path)

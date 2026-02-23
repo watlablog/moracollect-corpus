@@ -24,6 +24,7 @@ import {
 } from './waveform'
 import {
   deleteMyRecord,
+  fetchRecordPlaybackBlobWithAutoRetry,
   fetchMyRecords,
   registerRecord,
   type MyRecordItem,
@@ -104,8 +105,12 @@ app.innerHTML = `
         <p class="prompt-heading">Step7: Script and prompt selection</p>
         <label for="script-select" class="prompt-label">Script</label>
         <select id="script-select" class="script-select"></select>
+        <div class="prompt-tools">
+          <button id="refresh-script-prompts" type="button" class="ghost">Refresh counts</button>
+        </div>
         <p id="script-status" class="script-status">Scripts: waiting for sign-in</p>
         <p id="prompt-status" class="prompt-status">Prompts: waiting for sign-in</p>
+        <p class="prompt-note">Counts update on manual refresh to reduce Firestore reads.</p>
         <p id="selected-prompt" class="selected-prompt">Selected prompt: none</p>
         <div id="prompt-grid" class="prompt-grid" role="listbox" aria-label="Prompt selection"></div>
       </section>
@@ -156,6 +161,8 @@ const displayNameInput = mustGetElement<HTMLInputElement>('#display-name')
 const saveProfileButton = mustGetElement<HTMLButtonElement>('#save-profile')
 const profileStatusEl = mustGetElement<HTMLElement>('#profile-status')
 const scriptSelectEl = mustGetElement<HTMLSelectElement>('#script-select')
+const refreshScriptPromptsButton =
+  mustGetElement<HTMLButtonElement>('#refresh-script-prompts')
 const scriptStatusEl = mustGetElement<HTMLElement>('#script-status')
 const promptStatusEl = mustGetElement<HTMLElement>('#prompt-status')
 const selectedPromptEl = mustGetElement<HTMLElement>('#selected-prompt')
@@ -200,6 +207,8 @@ let recordingCountdownTimer: number | null = null
 let lastRecordingBlob: Blob | null = null
 let lastRecordingMimeType: string | null = null
 let lastRecordingDurationMs: number | null = null
+let isLoadedRecordPreview = false
+let loadedRecordId: string | null = null
 let uploadInProgress = false
 let uploadCompletedForCurrentRecording = false
 let registerInProgress = false
@@ -207,6 +216,7 @@ let registerRetryEnabled = false
 let pendingRegisterDraft: RegisterDraft | null = null
 let myRecordsItems: MyRecordItem[] = []
 const deletingRecordIds = new Set<string>()
+const loadingRecordIds = new Set<string>()
 let availableScripts: ScriptItem[] = []
 let availablePrompts: PromptItem[] = []
 let selectedScriptId: string | null = null
@@ -441,6 +451,7 @@ async function loadPromptsForScript(
     renderPromptButtons()
     updateSelectedPromptLabel()
     promptStatusEl.textContent = `Prompts: loaded (${availablePrompts.length})`
+    renderMyRecords(myRecordsItems)
   } catch (error) {
     availablePrompts = []
     selectedPromptId = null
@@ -536,6 +547,7 @@ function updateUploadButtonState(): void {
     !hasPromptSelection ||
     !lastRecordingBlob ||
     !lastRecordingMimeType ||
+    isLoadedRecordPreview ||
     recorder.getState() === 'recording' ||
     uploadInProgress ||
     uploadCompletedForCurrentRecording
@@ -588,6 +600,14 @@ function formatRecordDate(value: string | null): string {
   return parsed.toLocaleString()
 }
 
+function getPromptLabel(item: MyRecordItem): string {
+  if (typeof item.prompt_text === 'string' && item.prompt_text.trim()) {
+    return item.prompt_text.trim()
+  }
+  const matched = availablePrompts.find((prompt) => prompt.prompt_id === item.prompt_id)
+  return matched?.text ?? item.prompt_id
+}
+
 function renderMyRecords(items: MyRecordItem[]): void {
   myRecordsListEl.innerHTML = ''
   if (items.length === 0) {
@@ -601,20 +621,12 @@ function renderMyRecords(items: MyRecordItem[]): void {
   for (const item of items) {
     const li = document.createElement('li')
     li.className = 'my-record-item'
-    const sizeLabel =
-      typeof item.size_bytes === 'number'
-        ? `${Math.max(0, item.size_bytes)} bytes`
-        : 'size: -'
-    const durationLabel =
-      typeof item.duration_ms === 'number'
-        ? `${(item.duration_ms / 1000).toFixed(1)}s`
-        : 'duration: -'
     const row = document.createElement('div')
     row.className = 'my-record-row'
 
     const meta = document.createElement('span')
     meta.className = 'my-record-meta'
-    meta.textContent = `${item.record_id} | ${item.status} | ${durationLabel} | ${sizeLabel} | ${formatRecordDate(item.created_at)}`
+    meta.textContent = `${getPromptLabel(item)} | ${formatRecordDate(item.created_at)}`
 
     const deleteButton = document.createElement('button')
     deleteButton.type = 'button'
@@ -629,7 +641,26 @@ function renderMyRecords(items: MyRecordItem[]): void {
       void handleDeleteMyRecord(item.record_id)
     })
 
-    row.append(meta, deleteButton)
+    const loadButton = document.createElement('button')
+    loadButton.type = 'button'
+    loadButton.className = 'ghost my-record-load'
+    loadButton.textContent = loadingRecordIds.has(item.record_id)
+      ? 'Loading...'
+      : 'Load'
+    loadButton.disabled =
+      !currentUser ||
+      loadingRecordIds.has(item.record_id) ||
+      deletingRecordIds.has(item.record_id) ||
+      recorder.getState() === 'recording'
+    loadButton.addEventListener('click', () => {
+      void handleLoadMyRecord(item)
+    })
+
+    const actions = document.createElement('div')
+    actions.className = 'my-record-actions'
+    actions.append(loadButton, deleteButton)
+
+    row.append(meta, actions)
     li.append(row)
     myRecordsListEl.append(li)
   }
@@ -695,6 +726,7 @@ async function renderWaveformFromBlob(blob: Blob): Promise<void> {
 function setRecordingButtonsState(): void {
   if (!currentUser) {
     scriptSelectEl.disabled = true
+    refreshScriptPromptsButton.disabled = true
     recordingStartButton.disabled = true
     recordingStopButton.disabled = true
     recordingResetButton.disabled = true
@@ -705,6 +737,7 @@ function setRecordingButtonsState(): void {
   }
 
   scriptSelectEl.disabled = availableScripts.length === 0
+  refreshScriptPromptsButton.disabled = false
   updatePromptButtonsDisabled(false)
   const state = recorder.getState()
   const hasPromptSelection = Boolean(selectedScriptId && selectedPromptId)
@@ -749,6 +782,8 @@ function getRecorderErrorMessageByCode(code: RecorderErrorCode): string {
 
 function showRecordedAudio(result: RecordingResult): void {
   releaseRecordingObjectUrl()
+  isLoadedRecordPreview = false
+  loadedRecordId = null
   lastRecordingBlob = result.blob
   lastRecordingMimeType = result.mimeType
   lastRecordingDurationMs = result.durationMs
@@ -765,6 +800,8 @@ function showRecordedAudio(result: RecordingResult): void {
 }
 
 function setRecordingIdleState(): void {
+  isLoadedRecordPreview = false
+  loadedRecordId = null
   recorder.reset()
   releaseRecordingObjectUrl()
   clearRecordedUploadSource('Upload status: waiting for recording')
@@ -777,6 +814,8 @@ function setRecordingIdleState(): void {
 }
 
 async function setRecordingSignedOutState(): Promise<void> {
+  isLoadedRecordPreview = false
+  loadedRecordId = null
   stopRecordingCountdown()
   if (recorder.getState() === 'recording') {
     try {
@@ -838,6 +877,66 @@ async function loadMyRecords(user: User): Promise<void> {
   }
 }
 
+async function handleLoadMyRecord(item: MyRecordItem): Promise<void> {
+  if (!currentUser) {
+    myRecordsStatusEl.textContent = 'My records: sign in first'
+    return
+  }
+  if (loadingRecordIds.has(item.record_id)) {
+    return
+  }
+  if (recorder.getState() === 'recording') {
+    myRecordsStatusEl.textContent = 'My records: stop recording first'
+    return
+  }
+
+  loadingRecordIds.add(item.record_id)
+  renderMyRecords(myRecordsItems)
+  myRecordsStatusEl.textContent = 'My records: loading audio ...'
+
+  try {
+    const idToken = await currentUser.getIdToken()
+    const blob = await fetchRecordPlaybackBlobWithAutoRetry(
+      idToken,
+      item.record_id,
+      () => {
+        myRecordsStatusEl.textContent = 'My records: URL expired, retrying ...'
+      },
+    )
+
+    stopRecordingCountdown()
+    recorder.reset()
+    releaseRecordingObjectUrl()
+    recordingObjectUrl = URL.createObjectURL(blob)
+    recordingPreviewEl.src = recordingObjectUrl
+    recordingPreviewEl.hidden = false
+
+    isLoadedRecordPreview = true
+    loadedRecordId = item.record_id
+    clearRecordedUploadSource(
+      'Upload status: disabled (loaded record cannot be uploaded)',
+    )
+    clearRegisterDraft('Register status: waiting for upload')
+    recordingStatusEl.textContent = 'Recording status: loaded from my records (read-only)'
+    updateRecordingTimer()
+
+    try {
+      await renderWaveformFromBlob(blob)
+      waveformStatusEl.textContent = 'Waveform: loaded from my record'
+    } catch {
+      clearWaveformView('Waveform: unavailable')
+    }
+
+    myRecordsStatusEl.textContent = `My records: loaded audio (${item.record_id})`
+    setRecordingButtonsState()
+  } catch (error) {
+    myRecordsStatusEl.textContent = `My records: load failed (${getApiErrorMessage(error)})`
+  } finally {
+    loadingRecordIds.delete(item.record_id)
+    renderMyRecords(myRecordsItems)
+  }
+}
+
 async function handleDeleteMyRecord(recordId: string): Promise<void> {
   if (!currentUser) {
     myRecordsStatusEl.textContent = 'My records: sign in first'
@@ -864,8 +963,12 @@ async function handleDeleteMyRecord(recordId: string): Promise<void> {
     if (pendingRegisterDraft?.recordId === recordId) {
       clearRegisterDraft('Register status: waiting for upload')
     }
+    if (loadedRecordId === recordId) {
+      setRecordingIdleState()
+    }
     await loadMyRecords(currentUser)
-    await loadScriptsAndPrompts(currentUser, true)
+    scriptStatusEl.textContent = 'Scripts: loaded (manual refresh mode)'
+    promptStatusEl.textContent = 'Prompts: loaded (manual refresh mode)'
   } catch (error) {
     myRecordsStatusEl.textContent = `My records: delete failed (${getApiErrorMessage(error)})`
   } finally {
@@ -910,7 +1013,8 @@ async function runRegisterForDraft(user: User, draft: RegisterDraft): Promise<vo
       : 'Register status: registered'
     updateRegisterRetryButtonState()
     void loadMyRecords(user)
-    void loadScriptsAndPrompts(user, true)
+    scriptStatusEl.textContent = 'Scripts: loaded (manual refresh mode)'
+    promptStatusEl.textContent = 'Prompts: loaded (manual refresh mode)'
   } catch (error) {
     registerRetryEnabled = true
     registerStatusEl.textContent = `Register status: failed (${getApiErrorMessage(error)})`
@@ -1052,6 +1156,11 @@ async function handleUploadRecording(): Promise<void> {
     updateUploadButtonState()
     return
   }
+  if (isLoadedRecordPreview) {
+    uploadStatusEl.textContent = 'Upload status: disabled (loaded record cannot be uploaded)'
+    updateUploadButtonState()
+    return
+  }
   if (!selectedScriptId || !selectedPromptId) {
     uploadStatusEl.textContent = 'Upload status: select a prompt first'
     updateUploadButtonState()
@@ -1124,6 +1233,20 @@ async function handleRetryRegister(): Promise<void> {
   await runRegisterForDraft(currentUser, pendingRegisterDraft)
 }
 
+async function handleRefreshScriptPromptStats(): Promise<void> {
+  if (!currentUser) {
+    scriptStatusEl.textContent = 'Scripts: sign in first'
+    promptStatusEl.textContent = 'Prompts: sign in first'
+    return
+  }
+  refreshScriptPromptsButton.disabled = true
+  try {
+    await loadScriptsAndPrompts(currentUser, true)
+  } finally {
+    setRecordingButtonsState()
+  }
+}
+
 let auth: Auth | null = null
 try {
   auth = initializeFirebaseAuth()
@@ -1136,6 +1259,7 @@ try {
   setProfileControlsDisabled(true)
   scriptSelectEl.disabled = true
   scriptStatusEl.textContent = 'Scripts: disabled (Firebase init failed)'
+  refreshScriptPromptsButton.disabled = true
   promptStatusEl.textContent = 'Prompts: disabled (Firebase init failed)'
   selectedPromptEl.textContent = 'Selected prompt: none'
   promptGridEl.innerHTML = ''
@@ -1184,6 +1308,7 @@ if (auth) {
       void loadMyRecords(user)
     } else {
       deletingRecordIds.clear()
+      loadingRecordIds.clear()
       setProfileControlsDisabled(true)
       displayNameInput.value = ''
       profileStatusEl.textContent = 'Profile status: waiting for sign-in'
@@ -1248,6 +1373,10 @@ if (auth) {
     selectedPromptId = null
     updateSelectedPromptLabel()
     await loadPromptsForScript(currentUser, nextScriptId, false)
+  })
+
+  refreshScriptPromptsButton.addEventListener('click', async () => {
+    await handleRefreshScriptPromptStats()
   })
 
   recordingStartButton.addEventListener('click', async () => {

@@ -132,6 +132,16 @@ h1 {
   font-family: inherit;
 }
 
+.prompt-tools {
+  margin-top: 0.5rem;
+}
+
+.prompt-note {
+  margin: 0.4rem 0 0;
+  font-size: 0.8rem;
+  color: #0f766e;
+}
+
 .script-status,
 .prompt-status,
 .selected-prompt {
@@ -307,8 +317,14 @@ h1 {
   flex: 1;
 }
 
-.my-record-delete {
+.my-record-actions {
+  display: flex;
+  gap: 0.45rem;
   flex-shrink: 0;
+}
+
+.my-record-load,
+.my-record-delete {
   padding: 0.35rem 0.65rem;
   font-size: 0.76rem;
 }

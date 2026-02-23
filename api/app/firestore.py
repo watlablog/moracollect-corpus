@@ -87,3 +87,35 @@ def get_script_speaker_doc_ref(
     uid: str,
 ) -> admin_firestore.DocumentReference:
     return get_script_speakers_collection(script_id).document(uid)
+
+
+def get_snapshots_collection() -> admin_firestore.CollectionReference:
+    return get_firestore_client().collection("snapshots")
+
+
+def get_scripts_overview_snapshot_doc_ref() -> admin_firestore.DocumentReference:
+    return (
+        get_snapshots_collection()
+        .document("scripts_overview")
+        .collection("docs")
+        .document("current")
+    )
+
+
+def get_prompts_by_script_snapshot_doc_ref(
+    script_id: str,
+) -> admin_firestore.DocumentReference:
+    return (
+        get_snapshots_collection()
+        .document("prompts_by_script")
+        .collection("docs")
+        .document(script_id)
+    )
+
+
+def get_prompts_by_script_snapshots_collection() -> admin_firestore.CollectionReference:
+    return (
+        get_snapshots_collection()
+        .document("prompts_by_script")
+        .collection("docs")
+    )

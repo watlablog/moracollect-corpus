@@ -67,6 +67,7 @@ class MyRecordItem(BaseModel):
     status: str
     script_id: str
     prompt_id: str
+    prompt_text: str | None = None
     raw_path: str
     mime_type: str | None = None
     size_bytes: int | None = None
@@ -83,6 +84,15 @@ class DeleteMyRecordResponse(BaseModel):
     ok: bool
     record_id: str
     deleted: bool
+
+
+class MyRecordPlaybackUrlResponse(BaseModel):
+    ok: bool
+    record_id: str
+    raw_path: str
+    mime_type: str | None = None
+    playback_url: str
+    expires_in_sec: int
 
 
 class ScriptItem(BaseModel):

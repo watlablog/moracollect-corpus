@@ -17,11 +17,13 @@ from app.firestore import (
     get_prompt_doc_ref,
     get_prompt_speaker_doc_ref,
     get_prompt_stats_doc_ref,
+    get_prompts_by_script_snapshot_doc_ref,
     get_prompts_collection,
     get_record_doc_ref,
     get_script_doc_ref,
     get_script_speaker_doc_ref,
     get_script_stats_doc_ref,
+    get_scripts_overview_snapshot_doc_ref,
     get_scripts_collection,
     get_user_doc_ref,
     get_user_record_doc_ref,
@@ -31,6 +33,7 @@ from app.models import (
     DeleteMyRecordResponse,
     HealthResponse,
     MyRecordItem,
+    MyRecordPlaybackUrlResponse,
     MyRecordsResponse,
     PingResponse,
     PromptItem,
@@ -48,6 +51,7 @@ from app.models import (
 from app.storage import (
     build_raw_object_path,
     delete_object_if_exists,
+    generate_download_signed_url,
     generate_upload_signed_url,
     object_exists,
 )
@@ -62,6 +66,7 @@ STORAGE_BUCKET = os.getenv("STORAGE_BUCKET", "").strip()
 MIN_DISPLAY_NAME_LENGTH = 2
 MAX_DISPLAY_NAME_LENGTH = 20
 UPLOAD_URL_EXPIRES_SEC = 600
+PLAYBACK_URL_EXPIRES_SEC = 600
 ALLOWED_UPLOAD_CONTENT_TYPES = {
     "webm": "audio/webm",
     "mp4": "audio/mp4",
@@ -108,13 +113,140 @@ def get_scripts(decoded_token: dict = Depends(verify_id_token)) -> ScriptsRespon
     _ = get_uid_from_token(decoded_token)
 
     try:
-        script_snapshots = get_scripts_collection().where("is_active", "==", True).stream()
-        active_prompts = get_prompts_collection().where("is_active", "==", True).stream()
+        scripts_from_snapshot = load_scripts_from_snapshot()
+        if scripts_from_snapshot is not None:
+            return ScriptsResponse(ok=True, scripts=scripts_from_snapshot)
+        scripts_from_fallback = load_scripts_from_firestore_fallback()
+        return ScriptsResponse(ok=True, scripts=scripts_from_fallback)
+    except HTTPException:
+        raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to load scripts",
         ) from exc
+
+
+@app.get("/v1/prompts", response_model=PromptsResponse)
+def get_prompts(
+    script_id: str = Query(...),
+    decoded_token: dict = Depends(verify_id_token),
+) -> PromptsResponse:
+    _ = get_uid_from_token(decoded_token)
+    normalized_script_id = normalize_identifier(script_id, "script_id")
+
+    try:
+        prompts_from_snapshot = load_prompts_from_snapshot(normalized_script_id)
+        if prompts_from_snapshot is not None:
+            return PromptsResponse(
+                ok=True,
+                script_id=normalized_script_id,
+                prompts=prompts_from_snapshot,
+            )
+        prompts_from_fallback = load_prompts_from_firestore_fallback(normalized_script_id)
+        return PromptsResponse(
+            ok=True,
+            script_id=normalized_script_id,
+            prompts=prompts_from_fallback,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load prompts",
+        ) from exc
+
+
+def load_scripts_from_snapshot() -> list[ScriptItem] | None:
+    try:
+        snapshot = get_scripts_overview_snapshot_doc_ref().get()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to read scripts snapshot: %s", str(exc))
+        return None
+
+    if not snapshot.exists:
+        return None
+
+    data = snapshot.to_dict() or {}
+    scripts_map = data.get("scripts_map")
+    if not isinstance(scripts_map, dict):
+        return []
+
+    scripts: list[ScriptItem] = []
+    for script_key, raw_item in scripts_map.items():
+        if not isinstance(raw_item, dict):
+            continue
+        script_id = as_optional_str(raw_item.get("script_id")) or as_optional_str(script_key)
+        if not script_id:
+            continue
+        item = ScriptItem(
+            script_id=script_id,
+            title=as_optional_str(raw_item.get("title")) or script_id,
+            description=as_optional_str(raw_item.get("description")) or "",
+            order=as_optional_int(raw_item.get("order")) or 0,
+            is_active=as_bool(raw_item.get("is_active"), True),
+            prompt_count=max(0, as_optional_int(raw_item.get("prompt_count")) or 0),
+            total_records=max(0, as_optional_int(raw_item.get("total_records")) or 0),
+            unique_speakers=max(
+                0,
+                as_optional_int(raw_item.get("unique_speakers")) or 0,
+            ),
+        )
+        if item.is_active:
+            scripts.append(item)
+
+    scripts.sort(key=lambda item: (item.order, item.title, item.script_id))
+    return scripts
+
+
+def load_prompts_from_snapshot(script_id: str) -> list[PromptItem] | None:
+    try:
+        snapshot = get_prompts_by_script_snapshot_doc_ref(script_id).get()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to read prompts snapshot for script=%s: %s",
+            script_id,
+            str(exc),
+        )
+        return None
+
+    if not snapshot.exists:
+        return None
+
+    data = snapshot.to_dict() or {}
+    prompts_map = data.get("prompts_map")
+    if not isinstance(prompts_map, dict):
+        return []
+
+    prompts: list[PromptItem] = []
+    for prompt_key, raw_item in prompts_map.items():
+        if not isinstance(raw_item, dict):
+            continue
+        prompt_id = as_optional_str(raw_item.get("prompt_id")) or as_optional_str(prompt_key)
+        if not prompt_id:
+            continue
+        item = PromptItem(
+            prompt_id=prompt_id,
+            text=as_optional_str(raw_item.get("text")) or "",
+            order=as_optional_int(raw_item.get("order")) or 0,
+            is_active=as_bool(raw_item.get("is_active"), True),
+            total_records=max(0, as_optional_int(raw_item.get("total_records")) or 0),
+            unique_speakers=max(
+                0,
+                as_optional_int(raw_item.get("unique_speakers")) or 0,
+            ),
+        )
+        if item.is_active:
+            prompts.append(item)
+
+    prompts.sort(key=lambda item: (item.order, item.prompt_id))
+    return prompts
+
+
+def load_scripts_from_firestore_fallback() -> list[ScriptItem]:
+    script_snapshots = get_scripts_collection().where("is_active", "==", True).stream()
+    active_prompts = get_prompts_collection().where("is_active", "==", True).stream()
 
     prompt_counts_by_script: dict[str, int] = {}
     for prompt_snapshot in active_prompts:
@@ -122,9 +254,7 @@ def get_scripts(decoded_token: dict = Depends(verify_id_token)) -> ScriptsRespon
         script_id = as_optional_str(prompt_data.get("script_id"))
         if not script_id:
             continue
-        prompt_counts_by_script[script_id] = (
-            prompt_counts_by_script.get(script_id, 0) + 1
-        )
+        prompt_counts_by_script[script_id] = prompt_counts_by_script.get(script_id, 0) + 1
 
     scripts: list[ScriptItem] = []
     for script_snapshot in script_snapshots:
@@ -132,7 +262,6 @@ def get_scripts(decoded_token: dict = Depends(verify_id_token)) -> ScriptsRespon
         script_id = as_optional_str(script_data.get("script_id")) or script_snapshot.id
         stats_snapshot = get_script_stats_doc_ref(script_id).get()
         stats_data = stats_snapshot.to_dict() if stats_snapshot.exists else {}
-
         scripts.append(
             ScriptItem(
                 script_id=script_id,
@@ -150,31 +279,16 @@ def get_scripts(decoded_token: dict = Depends(verify_id_token)) -> ScriptsRespon
         )
 
     scripts.sort(key=lambda item: (item.order, item.title, item.script_id))
-    return ScriptsResponse(ok=True, scripts=scripts)
+    return scripts
 
 
-@app.get("/v1/prompts", response_model=PromptsResponse)
-def get_prompts(
-    script_id: str = Query(...),
-    decoded_token: dict = Depends(verify_id_token),
-) -> PromptsResponse:
-    _ = get_uid_from_token(decoded_token)
-    normalized_script_id = normalize_identifier(script_id, "script_id")
-
-    try:
-        script_snapshot = get_script_doc_ref(normalized_script_id).get()
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to load prompts",
-        ) from exc
-
+def load_prompts_from_firestore_fallback(script_id: str) -> list[PromptItem]:
+    script_snapshot = get_script_doc_ref(script_id).get()
     if not script_snapshot.exists:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="script not found",
         )
-
     script_data = script_snapshot.to_dict() or {}
     if not as_bool(script_data.get("is_active"), True):
         raise HTTPException(
@@ -182,18 +296,11 @@ def get_prompts(
             detail="script not found",
         )
 
-    try:
-        prompt_snapshots = (
-            get_prompts_collection()
-            .where("script_id", "==", normalized_script_id)
-            .stream()
-        )
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to load prompts",
-        ) from exc
-
+    prompt_snapshots = (
+        get_prompts_collection()
+        .where("script_id", "==", script_id)
+        .stream()
+    )
     prompts: list[PromptItem] = []
     for prompt_snapshot in prompt_snapshots:
         prompt_data = prompt_snapshot.to_dict() or {}
@@ -217,11 +324,7 @@ def get_prompts(
         )
 
     prompts.sort(key=lambda item: (item.order, item.prompt_id))
-    return PromptsResponse(
-        ok=True,
-        script_id=normalized_script_id,
-        prompts=prompts,
-    )
+    return prompts
 
 
 def normalize_display_name(display_name: str) -> str:
@@ -384,13 +487,64 @@ def create_record_and_update_stats(
     prompt_speaker_ref: admin_firestore.DocumentReference,
     script_stats_ref: admin_firestore.DocumentReference,
     script_speaker_ref: admin_firestore.DocumentReference,
+    scripts_overview_snapshot_ref: admin_firestore.DocumentReference,
+    prompts_by_script_snapshot_ref: admin_firestore.DocumentReference,
     record_doc: dict[str, Any],
     user_record_doc: dict[str, Any],
     script_id: str,
+    prompt_id: str,
     uid: str,
+    script_snapshot_base: dict[str, Any],
+    prompt_snapshot_base: dict[str, Any],
 ) -> None:
     prompt_speaker_snapshot = prompt_speaker_ref.get(transaction=transaction)
     script_speaker_snapshot = script_speaker_ref.get(transaction=transaction)
+    scripts_overview_snapshot = scripts_overview_snapshot_ref.get(transaction=transaction)
+    prompts_by_script_snapshot = prompts_by_script_snapshot_ref.get(
+        transaction=transaction
+    )
+
+    scripts_overview_data = (
+        scripts_overview_snapshot.to_dict() if scripts_overview_snapshot.exists else {}
+    )
+    scripts_map = scripts_overview_data.get("scripts_map")
+    if not isinstance(scripts_map, dict):
+        scripts_map = {}
+
+    existing_script_entry = scripts_map.get(script_id)
+    if not isinstance(existing_script_entry, dict):
+        existing_script_entry = {}
+    next_script_entry = {**existing_script_entry, **script_snapshot_base}
+    next_script_entry["total_records"] = max(
+        0, (as_optional_int(existing_script_entry.get("total_records")) or 0) + 1
+    )
+    next_script_entry["unique_speakers"] = max(
+        0,
+        (as_optional_int(existing_script_entry.get("unique_speakers")) or 0)
+        + (0 if script_speaker_snapshot.exists else 1),
+    )
+    scripts_map[script_id] = next_script_entry
+
+    prompts_by_script_data = (
+        prompts_by_script_snapshot.to_dict() if prompts_by_script_snapshot.exists else {}
+    )
+    prompts_map = prompts_by_script_data.get("prompts_map")
+    if not isinstance(prompts_map, dict):
+        prompts_map = {}
+
+    existing_prompt_entry = prompts_map.get(prompt_id)
+    if not isinstance(existing_prompt_entry, dict):
+        existing_prompt_entry = {}
+    next_prompt_entry = {**existing_prompt_entry, **prompt_snapshot_base}
+    next_prompt_entry["total_records"] = max(
+        0, (as_optional_int(existing_prompt_entry.get("total_records")) or 0) + 1
+    )
+    next_prompt_entry["unique_speakers"] = max(
+        0,
+        (as_optional_int(existing_prompt_entry.get("unique_speakers")) or 0)
+        + (0 if prompt_speaker_snapshot.exists else 1),
+    )
+    prompts_map[prompt_id] = next_prompt_entry
 
     transaction.set(record_ref, record_doc)
     transaction.set(user_record_ref, user_record_doc)
@@ -418,6 +572,24 @@ def create_record_and_update_stats(
             "total_records": admin_firestore.Increment(1),
             "updated_at": admin_firestore.SERVER_TIMESTAMP,
             "last_record_at": admin_firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+    transaction.set(
+        scripts_overview_snapshot_ref,
+        {
+            "scripts_map": scripts_map,
+            "updated_at": admin_firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+    transaction.set(
+        prompts_by_script_snapshot_ref,
+        {
+            "script_id": script_id,
+            "prompts_map": prompts_map,
+            "updated_at": admin_firestore.SERVER_TIMESTAMP,
         },
         merge=True,
     )
@@ -457,6 +629,155 @@ def create_record_and_update_stats(
             },
             merge=True,
         )
+
+
+@admin_firestore.transactional
+def delete_record_and_update_stats(
+    transaction: admin_firestore.Transaction,
+    *,
+    user_ref: admin_firestore.DocumentReference,
+    user_record_ref: admin_firestore.DocumentReference,
+    record_ref: admin_firestore.DocumentReference,
+    prompt_stats_ref: admin_firestore.DocumentReference,
+    prompt_speaker_ref: admin_firestore.DocumentReference,
+    script_stats_ref: admin_firestore.DocumentReference,
+    script_speaker_ref: admin_firestore.DocumentReference,
+    scripts_overview_snapshot_ref: admin_firestore.DocumentReference,
+    prompts_by_script_snapshot_ref: admin_firestore.DocumentReference,
+    script_id: str,
+    prompt_id: str,
+    prompt_text: str,
+    has_other_prompt_record: bool,
+    has_other_script_record: bool,
+) -> None:
+    user_snapshot = user_ref.get(transaction=transaction)
+    user_data = user_snapshot.to_dict() if user_snapshot.exists else {}
+    previous_contribution_count = as_optional_int(user_data.get("contribution_count")) or 0
+    next_contribution_count = max(0, previous_contribution_count - 1)
+
+    prompt_stats_snapshot = prompt_stats_ref.get(transaction=transaction)
+    prompt_stats_data = prompt_stats_snapshot.to_dict() if prompt_stats_snapshot.exists else {}
+    next_prompt_total = max(
+        0,
+        (as_optional_int(prompt_stats_data.get("total_records")) or 0) - 1,
+    )
+    next_prompt_unique = max(
+        0,
+        (as_optional_int(prompt_stats_data.get("unique_speakers")) or 0)
+        - (0 if has_other_prompt_record else 1),
+    )
+
+    script_stats_snapshot = script_stats_ref.get(transaction=transaction)
+    script_stats_data = script_stats_snapshot.to_dict() if script_stats_snapshot.exists else {}
+    next_script_total = max(
+        0,
+        (as_optional_int(script_stats_data.get("total_records")) or 0) - 1,
+    )
+    next_script_unique = max(
+        0,
+        (as_optional_int(script_stats_data.get("unique_speakers")) or 0)
+        - (0 if has_other_script_record else 1),
+    )
+
+    scripts_overview_snapshot = scripts_overview_snapshot_ref.get(transaction=transaction)
+    scripts_overview_data = (
+        scripts_overview_snapshot.to_dict() if scripts_overview_snapshot.exists else {}
+    )
+    scripts_map = scripts_overview_data.get("scripts_map")
+    if not isinstance(scripts_map, dict):
+        scripts_map = {}
+    existing_script_entry = scripts_map.get(script_id)
+    if not isinstance(existing_script_entry, dict):
+        existing_script_entry = {}
+    next_script_entry = dict(existing_script_entry)
+    next_script_entry["script_id"] = script_id
+    next_script_entry["total_records"] = next_script_total
+    next_script_entry["unique_speakers"] = next_script_unique
+    scripts_map[script_id] = next_script_entry
+
+    prompts_by_script_snapshot = prompts_by_script_snapshot_ref.get(transaction=transaction)
+    prompts_by_script_data = (
+        prompts_by_script_snapshot.to_dict() if prompts_by_script_snapshot.exists else {}
+    )
+    prompts_map = prompts_by_script_data.get("prompts_map")
+    if not isinstance(prompts_map, dict):
+        prompts_map = {}
+    existing_prompt_entry = prompts_map.get(prompt_id)
+    if not isinstance(existing_prompt_entry, dict):
+        existing_prompt_entry = {}
+    next_prompt_entry = dict(existing_prompt_entry)
+    next_prompt_entry["prompt_id"] = prompt_id
+    next_prompt_entry["text"] = prompt_text
+    next_prompt_entry["total_records"] = next_prompt_total
+    next_prompt_entry["unique_speakers"] = next_prompt_unique
+    prompts_map[prompt_id] = next_prompt_entry
+
+    transaction.set(
+        user_ref,
+        {
+            "contribution_count": next_contribution_count,
+            "updated_at": admin_firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+    transaction.set(
+        prompt_stats_ref,
+        {
+            "total_records": next_prompt_total,
+            "updated_at": admin_firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+    if not has_other_prompt_record:
+        transaction.set(
+            prompt_stats_ref,
+            {
+                "unique_speakers": next_prompt_unique,
+                "updated_at": admin_firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        transaction.delete(prompt_speaker_ref)
+
+    transaction.set(
+        script_stats_ref,
+        {
+            "total_records": next_script_total,
+            "updated_at": admin_firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+    if not has_other_script_record:
+        transaction.set(
+            script_stats_ref,
+            {
+                "unique_speakers": next_script_unique,
+                "updated_at": admin_firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+        transaction.delete(script_speaker_ref)
+
+    transaction.set(
+        scripts_overview_snapshot_ref,
+        {
+            "scripts_map": scripts_map,
+            "updated_at": admin_firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+    transaction.set(
+        prompts_by_script_snapshot_ref,
+        {
+            "script_id": script_id,
+            "prompts_map": prompts_map,
+            "updated_at": admin_firestore.SERVER_TIMESTAMP,
+        },
+        merge=True,
+    )
+
+    transaction.delete(user_record_ref)
+    transaction.delete(record_ref)
 
 
 def has_other_user_record(
@@ -657,6 +978,7 @@ def post_register(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="prompt does not belong to script",
             )
+        prompt_text = as_optional_str(prompt_data.get("text"))
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001
@@ -672,6 +994,22 @@ def post_register(
     prompt_speaker_ref = get_prompt_speaker_doc_ref(prompt_id, uid)
     script_stats_ref = get_script_stats_doc_ref(script_id)
     script_speaker_ref = get_script_speaker_doc_ref(script_id, uid)
+    scripts_overview_snapshot_ref = get_scripts_overview_snapshot_doc_ref()
+    prompts_by_script_snapshot_ref = get_prompts_by_script_snapshot_doc_ref(script_id)
+    script_snapshot_base = {
+        "script_id": script_id,
+        "title": as_optional_str(script_data.get("title")) or script_id,
+        "description": as_optional_str(script_data.get("description")) or "",
+        "order": as_optional_int(script_data.get("order")) or 0,
+        "is_active": as_bool(script_data.get("is_active"), True),
+        "prompt_count": max(0, as_optional_int(script_data.get("prompt_count")) or 0),
+    }
+    prompt_snapshot_base = {
+        "prompt_id": prompt_id,
+        "text": prompt_text or "",
+        "order": as_optional_int(prompt_data.get("order")) or 0,
+        "is_active": as_bool(prompt_data.get("is_active"), True),
+    }
 
     try:
         if not object_exists(STORAGE_BUCKET, raw_path):
@@ -709,6 +1047,8 @@ def post_register(
             existing_recording = existing_data.get("recording")
             if not isinstance(existing_recording, dict):
                 existing_recording = {}
+            existing_prompt_text = as_optional_str(existing_data.get("prompt_text"))
+            resolved_prompt_text = existing_prompt_text or prompt_text
 
             if existing_script_id != script_id or existing_prompt_id != prompt_id:
                 raise HTTPException(
@@ -731,6 +1071,7 @@ def post_register(
                     "raw_path": raw_path,
                     "script_id": existing_script_id,
                     "prompt_id": existing_prompt_id,
+                    "prompt_text": resolved_prompt_text,
                     "mime_type": as_optional_str(
                         existing_recording.get("mime_type")
                     )
@@ -756,6 +1097,7 @@ def post_register(
             "uid": uid,
             "script_id": script_id,
             "prompt_id": prompt_id,
+            "prompt_text": prompt_text,
             "raw_path": raw_path,
             "wav_path": "",
             "status": "uploaded",
@@ -770,6 +1112,7 @@ def post_register(
             "raw_path": raw_path,
             "script_id": script_id,
             "prompt_id": prompt_id,
+            "prompt_text": prompt_text,
             "mime_type": as_optional_str(recording_meta.get("mime_type")),
             "size_bytes": as_optional_int(recording_meta.get("size_bytes")),
             "duration_ms": as_optional_int(recording_meta.get("duration_ms")),
@@ -785,10 +1128,15 @@ def post_register(
             prompt_speaker_ref=prompt_speaker_ref,
             script_stats_ref=script_stats_ref,
             script_speaker_ref=script_speaker_ref,
+            scripts_overview_snapshot_ref=scripts_overview_snapshot_ref,
+            prompts_by_script_snapshot_ref=prompts_by_script_snapshot_ref,
             record_doc=record_doc,
             user_record_doc=user_record_doc,
             script_id=script_id,
+            prompt_id=prompt_id,
             uid=uid,
+            script_snapshot_base=script_snapshot_base,
+            prompt_snapshot_base=prompt_snapshot_base,
         )
     except HTTPException:
         raise
@@ -843,14 +1191,15 @@ def get_my_records(
     records: list[MyRecordItem] = []
     for snapshot in snapshots:
         data = snapshot.to_dict() or {}
+        prompt_id = as_optional_str(data.get("prompt_id")) or STEP6_DEFAULT_PROMPT_ID
         records.append(
             MyRecordItem(
                 record_id=as_optional_str(data.get("record_id")) or snapshot.id,
                 status=as_optional_str(data.get("status")) or "uploaded",
                 script_id=as_optional_str(data.get("script_id"))
                 or STEP6_DEFAULT_SCRIPT_ID,
-                prompt_id=as_optional_str(data.get("prompt_id"))
-                or STEP6_DEFAULT_PROMPT_ID,
+                prompt_id=prompt_id,
+                prompt_text=as_optional_str(data.get("prompt_text")),
                 raw_path=as_optional_str(data.get("raw_path")) or "",
                 mime_type=as_optional_str(data.get("mime_type")),
                 size_bytes=as_optional_int(data.get("size_bytes")),
@@ -860,6 +1209,96 @@ def get_my_records(
         )
 
     return MyRecordsResponse(ok=True, records=records)
+
+
+@app.get(
+    "/v1/my-records/{record_id}/playback-url",
+    response_model=MyRecordPlaybackUrlResponse,
+)
+def get_my_record_playback_url(
+    record_id: str = Path(...),
+    decoded_token: dict = Depends(verify_id_token),
+) -> MyRecordPlaybackUrlResponse:
+    if not STORAGE_BUCKET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Storage bucket is not configured",
+        )
+
+    uid = get_uid_from_token(decoded_token)
+    normalized_record_id = normalize_record_id(record_id)
+
+    try:
+        record_snapshot = get_record_doc_ref(normalized_record_id).get()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load record",
+        ) from exc
+
+    if not record_snapshot.exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="record not found",
+        )
+
+    record_data = record_snapshot.to_dict() or {}
+    record_uid = as_optional_str(record_data.get("uid"))
+    if not record_uid:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="record metadata is invalid",
+        )
+    if record_uid != uid:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="record does not belong to authenticated user",
+        )
+
+    raw_path = as_optional_str(record_data.get("raw_path"))
+    if not raw_path:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="record metadata is invalid",
+        )
+
+    if not object_exists(STORAGE_BUCKET, raw_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="raw object not found",
+        )
+
+    recording = record_data.get("recording")
+    mime_type = as_optional_str(recording.get("mime_type")) if isinstance(recording, dict) else None
+
+    try:
+        playback_url = generate_download_signed_url(
+            bucket_name=STORAGE_BUCKET,
+            object_path=raw_path,
+            expires_sec=PLAYBACK_URL_EXPIRES_SEC,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Failed to generate playback URL: uid=%s record_id=%s raw_path=%s error_type=%s error=%s",
+            uid,
+            normalized_record_id,
+            raw_path,
+            type(exc).__name__,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate playback URL",
+        ) from exc
+
+    return MyRecordPlaybackUrlResponse(
+        ok=True,
+        record_id=normalized_record_id,
+        raw_path=raw_path,
+        mime_type=mime_type,
+        playback_url=playback_url,
+        expires_in_sec=PLAYBACK_URL_EXPIRES_SEC,
+    )
 
 
 @app.delete(
@@ -923,6 +1362,8 @@ def delete_my_record(
     prompt_speaker_ref = get_prompt_speaker_doc_ref(prompt_id, uid)
     script_stats_ref = get_script_stats_doc_ref(script_id)
     script_speaker_ref = get_script_speaker_doc_ref(script_id, uid)
+    scripts_overview_snapshot_ref = get_scripts_overview_snapshot_doc_ref()
+    prompts_by_script_snapshot_ref = get_prompts_by_script_snapshot_doc_ref(script_id)
     user_records_collection = get_user_records_collection(uid)
 
     try:
@@ -939,95 +1380,27 @@ def delete_my_record(
             current_record_id=normalized_record_id,
         )
 
-        user_snapshot = user_ref.get()
-        user_data = user_snapshot.to_dict() if user_snapshot.exists else {}
-        previous_contribution_count = (
-            as_optional_int(user_data.get("contribution_count")) or 0
-        )
-        next_contribution_count = max(0, previous_contribution_count - 1)
-
-        prompt_stats_snapshot = prompt_stats_ref.get()
-        prompt_stats_data = (
-            prompt_stats_snapshot.to_dict() if prompt_stats_snapshot.exists else {}
-        )
-        next_prompt_total = max(
-            0,
-            (as_optional_int(prompt_stats_data.get("total_records")) or 0) - 1,
-        )
-        next_prompt_unique = max(
-            0,
-            (as_optional_int(prompt_stats_data.get("unique_speakers")) or 0)
-            - (0 if has_other_prompt_record else 1),
-        )
-
-        script_stats_snapshot = script_stats_ref.get()
-        script_stats_data = (
-            script_stats_snapshot.to_dict() if script_stats_snapshot.exists else {}
-        )
-        next_script_total = max(
-            0,
-            (as_optional_int(script_stats_data.get("total_records")) or 0) - 1,
-        )
-        next_script_unique = max(
-            0,
-            (as_optional_int(script_stats_data.get("unique_speakers")) or 0)
-            - (0 if has_other_script_record else 1),
-        )
-
         delete_object_if_exists(STORAGE_BUCKET, raw_path)
         if wav_path:
             delete_object_if_exists(STORAGE_BUCKET, wav_path)
-
-        batch = get_firestore_client().batch()
-        batch.set(
-            user_ref,
-            {
-                "contribution_count": next_contribution_count,
-                "updated_at": admin_firestore.SERVER_TIMESTAMP,
-            },
-            merge=True,
+        transaction = get_firestore_client().transaction()
+        delete_record_and_update_stats(
+            transaction,
+            user_ref=user_ref,
+            user_record_ref=user_record_ref,
+            record_ref=record_ref,
+            prompt_stats_ref=prompt_stats_ref,
+            prompt_speaker_ref=prompt_speaker_ref,
+            script_stats_ref=script_stats_ref,
+            script_speaker_ref=script_speaker_ref,
+            scripts_overview_snapshot_ref=scripts_overview_snapshot_ref,
+            prompts_by_script_snapshot_ref=prompts_by_script_snapshot_ref,
+            script_id=script_id,
+            prompt_id=prompt_id,
+            prompt_text=as_optional_str(record_data.get("prompt_text")) or "",
+            has_other_prompt_record=has_other_prompt_record,
+            has_other_script_record=has_other_script_record,
         )
-        batch.set(
-            prompt_stats_ref,
-            {
-                "total_records": next_prompt_total,
-                "updated_at": admin_firestore.SERVER_TIMESTAMP,
-            },
-            merge=True,
-        )
-        if not has_other_prompt_record:
-            batch.set(
-                prompt_stats_ref,
-                {
-                    "unique_speakers": next_prompt_unique,
-                    "updated_at": admin_firestore.SERVER_TIMESTAMP,
-                },
-                merge=True,
-            )
-            batch.delete(prompt_speaker_ref)
-
-        batch.set(
-            script_stats_ref,
-            {
-                "total_records": next_script_total,
-                "updated_at": admin_firestore.SERVER_TIMESTAMP,
-            },
-            merge=True,
-        )
-        if not has_other_script_record:
-            batch.set(
-                script_stats_ref,
-                {
-                    "unique_speakers": next_script_unique,
-                    "updated_at": admin_firestore.SERVER_TIMESTAMP,
-                },
-                merge=True,
-            )
-            batch.delete(script_speaker_ref)
-
-        batch.delete(user_record_ref)
-        batch.delete(record_ref)
-        batch.commit()
     except Forbidden as exc:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
