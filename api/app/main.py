@@ -30,6 +30,11 @@ from app.firestore import (
     get_user_records_collection,
 )
 from app.models import (
+    AvatarDeleteResponse,
+    AvatarSaveRequest,
+    AvatarSaveResponse,
+    AvatarUploadUrlResponse,
+    AvatarUrlResponse,
     DeleteMyRecordResponse,
     HealthResponse,
     MyRecordItem,
@@ -49,6 +54,7 @@ from app.models import (
     UploadUrlResponse,
 )
 from app.storage import (
+    build_avatar_object_path,
     build_raw_object_path,
     delete_object_if_exists,
     generate_download_signed_url,
@@ -67,6 +73,11 @@ MIN_DISPLAY_NAME_LENGTH = 2
 MAX_DISPLAY_NAME_LENGTH = 20
 UPLOAD_URL_EXPIRES_SEC = 600
 PLAYBACK_URL_EXPIRES_SEC = 600
+AVATAR_UPLOAD_URL_EXPIRES_SEC = 600
+AVATAR_VIEW_URL_EXPIRES_SEC = 3600
+ALLOWED_AVATAR_CONTENT_TYPE = "image/webp"
+AVATAR_EXPORT_SIZE = 512
+MAX_AVATAR_SIZE_BYTES = 10 * 1024 * 1024
 ALLOWED_UPLOAD_CONTENT_TYPES = {
     "webm": "audio/webm",
     "mp4": "audio/mp4",
@@ -226,9 +237,22 @@ def load_prompts_from_snapshot(script_id: str) -> list[PromptItem] | None:
         prompt_id = as_optional_str(raw_item.get("prompt_id")) or as_optional_str(prompt_key)
         if not prompt_id:
             continue
+        text = as_optional_str(raw_item.get("text")) or ""
+        if not text:
+            try:
+                prompt_snapshot = get_prompt_doc_ref(prompt_id).get()
+                if prompt_snapshot.exists:
+                    prompt_data = prompt_snapshot.to_dict() or {}
+                    text = as_optional_str(prompt_data.get("text")) or ""
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to recover prompt text from prompts collection: prompt_id=%s error=%s",
+                    prompt_id,
+                    str(exc),
+                )
         item = PromptItem(
             prompt_id=prompt_id,
-            text=as_optional_str(raw_item.get("text")) or "",
+            text=text or prompt_id,
             order=as_optional_int(raw_item.get("order")) or 0,
             is_active=as_bool(raw_item.get("is_active"), True),
             total_records=max(0, as_optional_int(raw_item.get("total_records")) or 0),
@@ -373,6 +397,38 @@ def normalize_record_id(record_id: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="record_id must be a valid UUID",
         ) from exc
+
+
+def normalize_avatar_path(avatar_path: str, uid: str) -> str:
+    normalized_path = avatar_path.strip().lstrip("/")
+    parts = normalized_path.split("/")
+    if len(parts) != 3 or parts[0] != "avatars":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="avatar_path must follow avatars/{uid}/{avatar_id}.webp",
+        )
+
+    path_uid = parts[1]
+    if path_uid != uid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="avatar_path uid must match authenticated user",
+        )
+
+    filename = parts[2]
+    if not filename.endswith(".webp"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="avatar_path must end with .webp",
+        )
+    avatar_id = filename[:-5].strip()
+    if not avatar_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="avatar_path must include avatar_id",
+        )
+
+    return build_avatar_object_path(uid=uid, avatar_id=avatar_id)
 
 
 def normalize_identifier(value: str, field_name: str) -> str:
@@ -646,7 +702,7 @@ def delete_record_and_update_stats(
     prompts_by_script_snapshot_ref: admin_firestore.DocumentReference,
     script_id: str,
     prompt_id: str,
-    prompt_text: str,
+    prompt_text: str | None,
     has_other_prompt_record: bool,
     has_other_script_record: bool,
 ) -> None:
@@ -707,7 +763,13 @@ def delete_record_and_update_stats(
         existing_prompt_entry = {}
     next_prompt_entry = dict(existing_prompt_entry)
     next_prompt_entry["prompt_id"] = prompt_id
-    next_prompt_entry["text"] = prompt_text
+    normalized_prompt_text = as_optional_str(prompt_text)
+    if normalized_prompt_text:
+        next_prompt_entry["text"] = normalized_prompt_text
+    elif as_optional_str(existing_prompt_entry.get("text")):
+        next_prompt_entry["text"] = as_optional_str(existing_prompt_entry.get("text"))
+    else:
+        next_prompt_entry["text"] = prompt_id
     next_prompt_entry["total_records"] = next_prompt_total
     next_prompt_entry["unique_speakers"] = next_prompt_unique
     prompts_map[prompt_id] = next_prompt_entry
@@ -816,18 +878,26 @@ def get_profile(decoded_token: dict = Depends(verify_id_token)) -> ProfileGetRes
             uid=uid,
             display_name="",
             profile_exists=False,
+            avatar_exists=False,
+            avatar_path=None,
+            avatar_updated_at=None,
         )
 
     data = snapshot.to_dict() or {}
     display_name = data.get("display_name")
     if not isinstance(display_name, str):
         display_name = ""
+    avatar_path = as_optional_str(data.get("avatar_path"))
+    avatar_updated_at = format_timestamp(data.get("avatar_updated_at"))
 
     return ProfileGetResponse(
         ok=True,
         uid=uid,
         display_name=display_name,
         profile_exists=True,
+        avatar_exists=bool(avatar_path),
+        avatar_path=avatar_path,
+        avatar_updated_at=avatar_updated_at,
     )
 
 
@@ -868,6 +938,288 @@ def post_profile(
         ) from exc
 
     return ProfilePostResponse(ok=True, uid=uid, display_name=display_name)
+
+
+@app.post("/v1/profile/avatar-upload-url", response_model=AvatarUploadUrlResponse)
+def post_avatar_upload_url(
+    decoded_token: dict = Depends(verify_id_token),
+) -> AvatarUploadUrlResponse:
+    if not STORAGE_BUCKET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Storage bucket is not configured",
+        )
+
+    uid = get_uid_from_token(decoded_token)
+    avatar_id = str(uuid4())
+    avatar_path = build_avatar_object_path(uid=uid, avatar_id=avatar_id)
+
+    try:
+        upload_url = generate_upload_signed_url(
+            bucket_name=STORAGE_BUCKET,
+            object_path=avatar_path,
+            content_type=ALLOWED_AVATAR_CONTENT_TYPE,
+            expires_sec=AVATAR_UPLOAD_URL_EXPIRES_SEC,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Failed to generate avatar upload URL: uid=%s bucket=%s avatar_path=%s error_type=%s error=%s",
+            uid,
+            STORAGE_BUCKET,
+            avatar_path,
+            type(exc).__name__,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate avatar upload URL",
+        ) from exc
+
+    return AvatarUploadUrlResponse(
+        ok=True,
+        avatar_id=avatar_id,
+        avatar_path=avatar_path,
+        upload_url=upload_url,
+        method="PUT",
+        required_headers={"Content-Type": ALLOWED_AVATAR_CONTENT_TYPE},
+        expires_in_sec=AVATAR_UPLOAD_URL_EXPIRES_SEC,
+    )
+
+
+@app.post("/v1/profile/avatar", response_model=AvatarSaveResponse)
+def post_profile_avatar(
+    payload: AvatarSaveRequest,
+    decoded_token: dict = Depends(verify_id_token),
+) -> AvatarSaveResponse:
+    if not STORAGE_BUCKET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Storage bucket is not configured",
+        )
+
+    uid = get_uid_from_token(decoded_token)
+    avatar_path = normalize_avatar_path(payload.avatar_path, uid=uid)
+    mime_type = payload.mime_type.strip().lower()
+
+    if mime_type != ALLOWED_AVATAR_CONTENT_TYPE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"mime_type must be {ALLOWED_AVATAR_CONTENT_TYPE}",
+        )
+    if payload.size_bytes <= 0 or payload.size_bytes > MAX_AVATAR_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"size_bytes must be between 1 and {MAX_AVATAR_SIZE_BYTES}",
+        )
+    if payload.width != AVATAR_EXPORT_SIZE or payload.height != AVATAR_EXPORT_SIZE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"width and height must be {AVATAR_EXPORT_SIZE}",
+        )
+
+    if not object_exists(STORAGE_BUCKET, avatar_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="avatar object not found",
+        )
+
+    user_ref = get_user_doc_ref(uid)
+    timestamp_now = datetime.now(timezone.utc)
+    old_avatar_path = ""
+    try:
+        snapshot = user_ref.get()
+        if snapshot.exists:
+            data = snapshot.to_dict() or {}
+            old_avatar_path = as_optional_str(data.get("avatar_path")) or ""
+            user_ref.set(
+                {
+                    "avatar_path": avatar_path,
+                    "avatar_mime_type": mime_type,
+                    "avatar_size_bytes": payload.size_bytes,
+                    "avatar_width": payload.width,
+                    "avatar_height": payload.height,
+                    "avatar_updated_at": admin_firestore.SERVER_TIMESTAMP,
+                    "updated_at": admin_firestore.SERVER_TIMESTAMP,
+                },
+                merge=True,
+            )
+        else:
+            user_ref.set(
+                {
+                    "role": "collector",
+                    "avatar_path": avatar_path,
+                    "avatar_mime_type": mime_type,
+                    "avatar_size_bytes": payload.size_bytes,
+                    "avatar_width": payload.width,
+                    "avatar_height": payload.height,
+                    "avatar_updated_at": admin_firestore.SERVER_TIMESTAMP,
+                    "created_at": admin_firestore.SERVER_TIMESTAMP,
+                    "updated_at": admin_firestore.SERVER_TIMESTAMP,
+                }
+            )
+
+        if old_avatar_path and old_avatar_path != avatar_path:
+            delete_object_if_exists(STORAGE_BUCKET, old_avatar_path)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Failed to save avatar profile: uid=%s avatar_path=%s error_type=%s error=%s",
+            uid,
+            avatar_path,
+            type(exc).__name__,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save avatar profile",
+        ) from exc
+
+    return AvatarSaveResponse(
+        ok=True,
+        uid=uid,
+        avatar_path=avatar_path,
+        avatar_updated_at=format_timestamp(timestamp_now) or "",
+    )
+
+
+@app.get("/v1/profile/avatar-url", response_model=AvatarUrlResponse)
+def get_profile_avatar_url(
+    decoded_token: dict = Depends(verify_id_token),
+) -> AvatarUrlResponse:
+    if not STORAGE_BUCKET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Storage bucket is not configured",
+        )
+
+    uid = get_uid_from_token(decoded_token)
+    try:
+        user_snapshot = get_user_doc_ref(uid).get()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load avatar profile",
+        ) from exc
+
+    if not user_snapshot.exists:
+        return AvatarUrlResponse(
+            ok=True,
+            uid=uid,
+            avatar_exists=False,
+            avatar_url=None,
+            expires_in_sec=0,
+        )
+
+    user_data = user_snapshot.to_dict() or {}
+    avatar_path = as_optional_str(user_data.get("avatar_path"))
+    if not avatar_path:
+        return AvatarUrlResponse(
+            ok=True,
+            uid=uid,
+            avatar_exists=False,
+            avatar_url=None,
+            expires_in_sec=0,
+        )
+
+    if not object_exists(STORAGE_BUCKET, avatar_path):
+        return AvatarUrlResponse(
+            ok=True,
+            uid=uid,
+            avatar_exists=False,
+            avatar_url=None,
+            expires_in_sec=0,
+        )
+
+    try:
+        avatar_url = generate_download_signed_url(
+            bucket_name=STORAGE_BUCKET,
+            object_path=avatar_path,
+            expires_sec=AVATAR_VIEW_URL_EXPIRES_SEC,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Failed to generate avatar URL: uid=%s avatar_path=%s error_type=%s error=%s",
+            uid,
+            avatar_path,
+            type(exc).__name__,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate avatar URL",
+        ) from exc
+
+    return AvatarUrlResponse(
+        ok=True,
+        uid=uid,
+        avatar_exists=True,
+        avatar_url=avatar_url,
+        expires_in_sec=AVATAR_VIEW_URL_EXPIRES_SEC,
+    )
+
+
+@app.delete("/v1/profile/avatar", response_model=AvatarDeleteResponse)
+def delete_profile_avatar(
+    decoded_token: dict = Depends(verify_id_token),
+) -> AvatarDeleteResponse:
+    if not STORAGE_BUCKET:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Storage bucket is not configured",
+        )
+
+    uid = get_uid_from_token(decoded_token)
+    user_ref = get_user_doc_ref(uid)
+    try:
+        user_snapshot = user_ref.get()
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load avatar profile",
+        ) from exc
+
+    if not user_snapshot.exists:
+        return AvatarDeleteResponse(ok=True, uid=uid, deleted=False)
+
+    user_data = user_snapshot.to_dict() or {}
+    avatar_path = as_optional_str(user_data.get("avatar_path"))
+    if not avatar_path:
+        return AvatarDeleteResponse(ok=True, uid=uid, deleted=False)
+
+    try:
+        delete_object_if_exists(STORAGE_BUCKET, avatar_path)
+        user_ref.set(
+            {
+                "avatar_path": admin_firestore.DELETE_FIELD,
+                "avatar_mime_type": admin_firestore.DELETE_FIELD,
+                "avatar_size_bytes": admin_firestore.DELETE_FIELD,
+                "avatar_width": admin_firestore.DELETE_FIELD,
+                "avatar_height": admin_firestore.DELETE_FIELD,
+                "avatar_updated_at": admin_firestore.DELETE_FIELD,
+                "updated_at": admin_firestore.SERVER_TIMESTAMP,
+            },
+            merge=True,
+        )
+    except Forbidden as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Storage delete permission denied",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Failed to delete avatar: uid=%s avatar_path=%s error_type=%s error=%s",
+            uid,
+            avatar_path,
+            type(exc).__name__,
+            str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete avatar",
+        ) from exc
+
+    return AvatarDeleteResponse(ok=True, uid=uid, deleted=True)
 
 
 @app.post("/v1/upload-url", response_model=UploadUrlResponse)
@@ -1367,6 +1719,20 @@ def delete_my_record(
     user_records_collection = get_user_records_collection(uid)
 
     try:
+        resolved_prompt_text = as_optional_str(record_data.get("prompt_text"))
+        if not resolved_prompt_text:
+            try:
+                prompt_snapshot = get_prompt_doc_ref(prompt_id).get()
+                if prompt_snapshot.exists:
+                    prompt_data = prompt_snapshot.to_dict() or {}
+                    resolved_prompt_text = as_optional_str(prompt_data.get("text"))
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to resolve prompt text during delete: prompt_id=%s error=%s",
+                    prompt_id,
+                    str(exc),
+                )
+
         has_other_prompt_record = has_other_user_record(
             user_records_collection,
             field_name="prompt_id",
@@ -1397,7 +1763,7 @@ def delete_my_record(
             prompts_by_script_snapshot_ref=prompts_by_script_snapshot_ref,
             script_id=script_id,
             prompt_id=prompt_id,
-            prompt_text=as_optional_str(record_data.get("prompt_text")) or "",
+            prompt_text=resolved_prompt_text,
             has_other_prompt_record=has_other_prompt_record,
             has_other_script_record=has_other_script_record,
         )

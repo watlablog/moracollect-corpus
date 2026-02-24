@@ -3,6 +3,9 @@ export type ProfileGetResponse = {
   uid: string
   display_name: string
   profile_exists: boolean
+  avatar_exists: boolean
+  avatar_path: string | null
+  avatar_updated_at: string | null
 }
 
 export type ProfilePostResponse = {

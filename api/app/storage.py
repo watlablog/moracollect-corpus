@@ -23,6 +23,10 @@ def build_raw_object_path(uid: str, record_id: str, ext: str) -> str:
     return f"raw/{uid}/{record_id}.{normalized_ext}"
 
 
+def build_avatar_object_path(uid: str, avatar_id: str) -> str:
+    return f"avatars/{uid}/{avatar_id}.webp"
+
+
 def resolve_signing_identity(client: storage.Client) -> tuple[str, str]:
     credentials = ensure_signing_scopes(client._credentials)
     credentials.refresh(Request())

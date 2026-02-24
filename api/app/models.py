@@ -19,6 +19,9 @@ class ProfileGetResponse(BaseModel):
     uid: str
     display_name: str
     profile_exists: bool
+    avatar_exists: bool = False
+    avatar_path: str | None = None
+    avatar_updated_at: str | None = None
 
 
 class ProfilePostRequest(BaseModel):
@@ -29,6 +32,45 @@ class ProfilePostResponse(BaseModel):
     ok: bool
     uid: str
     display_name: str
+
+
+class AvatarUploadUrlResponse(BaseModel):
+    ok: bool
+    avatar_id: str
+    avatar_path: str
+    upload_url: str
+    method: str
+    required_headers: dict[str, str]
+    expires_in_sec: int
+
+
+class AvatarSaveRequest(BaseModel):
+    avatar_path: str
+    mime_type: str
+    size_bytes: int
+    width: int
+    height: int
+
+
+class AvatarSaveResponse(BaseModel):
+    ok: bool
+    uid: str
+    avatar_path: str
+    avatar_updated_at: str
+
+
+class AvatarUrlResponse(BaseModel):
+    ok: bool
+    uid: str
+    avatar_exists: bool
+    avatar_url: str | None = None
+    expires_in_sec: int
+
+
+class AvatarDeleteResponse(BaseModel):
+    ok: bool
+    uid: str
+    deleted: bool
 
 
 class UploadUrlRequest(BaseModel):

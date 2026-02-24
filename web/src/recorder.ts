@@ -1,4 +1,4 @@
-export const MIN_RECORDING_MS = 1000
+export const MIN_RECORDING_MS = 0
 export const MAX_RECORDING_MS = 5000
 
 export type RecorderState = 'idle' | 'recording' | 'recorded' | 'error'
@@ -239,16 +239,6 @@ export class BrowserRecorder {
     const blob = new Blob(this.chunks, { type: mimeType })
 
     this.cleanupMediaResources()
-
-    if (durationMs < MIN_RECORDING_MS) {
-      this.finishWithError(
-        toRecorderError(
-          'too-short',
-          `Recording must be at least ${MIN_RECORDING_MS / 1000} second.`,
-        ),
-      )
-      return
-    }
 
     if (blob.size === 0) {
       this.finishWithError(
