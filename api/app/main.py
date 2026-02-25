@@ -25,6 +25,7 @@ from app.firestore import (
     get_script_stats_doc_ref,
     get_scripts_overview_snapshot_doc_ref,
     get_scripts_collection,
+    get_users_collection,
     get_user_doc_ref,
     get_user_record_doc_ref,
     get_user_records_collection,
@@ -37,6 +38,8 @@ from app.models import (
     AvatarUrlResponse,
     DeleteMyRecordResponse,
     HealthResponse,
+    LeaderboardItem,
+    LeaderboardResponse,
     MyRecordItem,
     MyRecordPlaybackUrlResponse,
     MyRecordsResponse,
@@ -86,6 +89,8 @@ STEP6_DEFAULT_SCRIPT_ID = "step5-free-script"
 STEP6_DEFAULT_PROMPT_ID = "step5-free-prompt"
 DEFAULT_MY_RECORDS_LIMIT = 20
 MAX_MY_RECORDS_LIMIT = 50
+DEFAULT_LEADERBOARD_LIMIT = 10
+MAX_LEADERBOARD_LIMIT = 50
 IDENTIFIER_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,99}$")
 
 allowed_origins = [
@@ -530,6 +535,21 @@ def format_timestamp(value: Any) -> str | None:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def resolve_leaderboard_display_name(user_data: dict[str, Any], uid: str) -> str:
+    display_name = as_optional_str(user_data.get("display_name"))
+    if display_name:
+        return display_name
+    return uid
+
+
+def leaderboard_sort_key(item: LeaderboardItem) -> tuple[int, str, str]:
+    return (
+        -item.contribution_count,
+        item.display_name.casefold(),
+        item.uid,
+    )
 
 
 @admin_firestore.transactional
@@ -1584,6 +1604,97 @@ def get_my_records(
         records=records,
         has_next=has_next,
         next_cursor=next_cursor,
+    )
+
+
+@app.get("/v1/leaderboard", response_model=LeaderboardResponse)
+def get_leaderboard(
+    limit: int = Query(
+        default=DEFAULT_LEADERBOARD_LIMIT,
+        ge=1,
+        le=MAX_LEADERBOARD_LIMIT,
+    ),
+    decoded_token: dict = Depends(verify_id_token),
+) -> LeaderboardResponse:
+    _ = get_uid_from_token(decoded_token)
+
+    read_limit = min(500, max(100, limit * 10))
+    try:
+        user_snapshots = (
+            get_users_collection()
+            .order_by("contribution_count", direction=admin_firestore.Query.DESCENDING)
+            .limit(read_limit)
+            .stream()
+        )
+        snapshot_list = list(user_snapshots)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to load leaderboard",
+        ) from exc
+
+    candidates: list[LeaderboardItem] = []
+    for snapshot in snapshot_list:
+        user_data = snapshot.to_dict() or {}
+        contribution_count = max(
+            0,
+            as_optional_int(user_data.get("contribution_count")) or 0,
+        )
+        if contribution_count <= 0:
+            continue
+        if as_bool(user_data.get("is_hidden"), False):
+            continue
+
+        uid = snapshot.id
+        display_name = resolve_leaderboard_display_name(user_data, uid)
+        avatar_url: str | None = None
+        avatar_expires_in_sec = 0
+        avatar_path = as_optional_str(user_data.get("avatar_path"))
+        if STORAGE_BUCKET and avatar_path:
+            try:
+                if object_exists(STORAGE_BUCKET, avatar_path):
+                    avatar_url = generate_download_signed_url(
+                        bucket_name=STORAGE_BUCKET,
+                        object_path=avatar_path,
+                        expires_sec=AVATAR_VIEW_URL_EXPIRES_SEC,
+                    )
+                    avatar_expires_in_sec = AVATAR_VIEW_URL_EXPIRES_SEC
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "Failed to generate leaderboard avatar URL: uid=%s avatar_path=%s error=%s",
+                    uid,
+                    avatar_path,
+                    str(exc),
+                )
+
+        candidates.append(
+            LeaderboardItem(
+                rank=0,
+                uid=uid,
+                display_name=display_name,
+                contribution_count=contribution_count,
+                avatar_url=avatar_url,
+                avatar_expires_in_sec=avatar_expires_in_sec,
+            )
+        )
+
+    candidates.sort(key=leaderboard_sort_key)
+    ranked = [
+        LeaderboardItem(
+            rank=index + 1,
+            uid=item.uid,
+            display_name=item.display_name,
+            contribution_count=item.contribution_count,
+            avatar_url=item.avatar_url,
+            avatar_expires_in_sec=item.avatar_expires_in_sec,
+        )
+        for index, item in enumerate(candidates[:limit])
+    ]
+
+    return LeaderboardResponse(
+        ok=True,
+        period="all",
+        leaderboard=ranked,
     )
 
 

@@ -1,7 +1,7 @@
 # MoraCollect
 
 MoraCollect is a corpus collection web app.
-This repository currently implements Step 0-8 scope from `DESIGN.md`:
+This repository currently implements Step 0-9 scope from `DESIGN.md`:
 
 - Step 0: public web page on Firebase Hosting
 - Step 1: Google sign-in/sign-out with Firebase Auth
@@ -12,6 +12,7 @@ This repository currently implements Step 0-8 scope from `DESIGN.md`:
 - Step 6: register metadata (`/v1/register`) + my records (`/v1/my-records`)
 - Step 7: script/prompt selection UI + prompt progress stats (`total_records`, `unique_speakers`)
 - Step 8: delete own records (Firestore + Storage) via `DELETE /v1/my-records/{record_id}`
+- Step 9: top contributors leaderboard (`GET /v1/leaderboard`)
 
 Beginner tutorials (JP):
 
@@ -23,6 +24,7 @@ Beginner tutorials (JP):
 - `06-Tutorial-Step6-Register-Records.md`
 - `07-Tutorial-Step7-Prompt-Selection.md`
 - `08-Tutorial-Step8-Delete-Own-Records.md`
+- `09-Tutorial-Step9-Leaderboard.md`
 
 ## Tech stack (current)
 
@@ -535,3 +537,60 @@ firebase deploy --only hosting
 4. Confirm:
   - `My records` no longer contains the record
   - selected prompt/script count values decrease
+
+## 12. Step9: Top contributors leaderboard
+
+### 12-1. New API endpoint
+
+- `GET /v1/leaderboard?limit=...` (auth required)
+  - query:
+    - `limit`: optional, default `10`, max `50`
+  - response:
+    - `period` is fixed as `"all"`
+    - `leaderboard` array of:
+      - `rank`
+      - `uid`
+      - `display_name`
+      - `contribution_count`
+      - `avatar_url` (optional)
+      - `avatar_expires_in_sec`
+
+### 12-2. Ranking rules
+
+- source: `users/{uid}.contribution_count`
+- include only:
+  - `contribution_count > 0`
+  - `is_hidden != true`
+- order:
+  1. `contribution_count` desc
+  2. `display_name` asc (fallback uid)
+  3. `uid` asc
+
+### 12-3. Backfill (recommended once)
+
+If you have existing records before Step9 rollout, run:
+
+```bash
+cd api
+source .venv/bin/activate
+python3 scripts/backfill_contribution_counts.py --dry-run
+python3 scripts/backfill_contribution_counts.py
+deactivate
+```
+
+### 12-4. Web behavior
+
+- Menu `管理` block has a `ランキング` button
+- Ranking view shows Top 10 only
+- `更新` button refreshes leaderboard on demand
+- leaderboard is fetched only when ranking view is opened or refreshed
+- while ranking view is open, successful register/delete triggers a refresh
+
+### 12-5. Quick verification
+
+1. Sign in with user A, upload/register several records
+2. Sign in with user B, upload/register fewer records
+3. Open ranking view
+4. Confirm:
+  - user A rank is above user B
+  - count values match expected non-deleted records

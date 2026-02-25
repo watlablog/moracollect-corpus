@@ -12,6 +12,10 @@ def get_user_doc_ref(uid: str) -> admin_firestore.DocumentReference:
     return get_firestore_client().collection("users").document(uid)
 
 
+def get_users_collection() -> admin_firestore.CollectionReference:
+    return get_firestore_client().collection("users")
+
+
 def get_records_collection() -> admin_firestore.CollectionReference:
     return get_firestore_client().collection("records")
 

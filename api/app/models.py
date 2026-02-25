@@ -168,3 +168,18 @@ class PromptsResponse(BaseModel):
     ok: bool
     script_id: str
     prompts: list[PromptItem]
+
+
+class LeaderboardItem(BaseModel):
+    rank: int
+    uid: str
+    display_name: str
+    contribution_count: int
+    avatar_url: str | None = None
+    avatar_expires_in_sec: int = 0
+
+
+class LeaderboardResponse(BaseModel):
+    ok: bool
+    period: str
+    leaderboard: list[LeaderboardItem]

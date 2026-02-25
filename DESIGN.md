@@ -9,8 +9,8 @@
 
 > 強制アライメント（pydomino）や最終的な耳チェックは別工程とし、このWebアプリは「収集・整理・可視化（進捗/ランキング）」に集中します。
 
-### 0.1 現在地（2026-02-23時点）
-- Step0〜Step8 は完了
+### 0.1 現在地（2026-02-25時点）
+- Step0〜Step9 は完了
   - Step0: Hosting公開
   - Step1: Firebase Auth（Google）ログイン
   - Step2: 認証付き `/v1/ping`
@@ -20,12 +20,13 @@
   - Step6: records登録（`/v1/register`, `/v1/my-records`）
   - Step7: 任意prompt選択 + 件数可視化（`/v1/scripts`, `/v1/prompts`）
   - Step8: 自分のrecord削除 + My records再読込 + read最小化（手動Refresh + snapshot）
-- 実装済み要素: Auth / Profile / Recording / Waveform / Upload / Register / My records / My records playback load / Script & Prompt selection / Read-minimized stats fetch
+  - Step9: 累計Top10ランキング（`/v1/leaderboard`）
+- 実装済み要素: Auth / Profile / Recording / Waveform / Upload / Register / My records / My records playback load / Script & Prompt selection / Read-minimized stats fetch / Leaderboard
 - Step7の標準データ:
   - script: `s-gojuon`（表示名 `50音`）1件
   - prompts: 104件（清音46 + 濁音/半濁音25 + 拗音33）
   - 表示順: `order` による固定50音順
-- 次アクション: **Step9（Top contributors ランキング）**
+- 次アクション: **Step10（raw→wav 変換 + QC）**
 
 ---
 
@@ -657,15 +658,20 @@ flowchart LR
 **実装**
 - `GET /v1/leaderboard` を実装
 - `users/{uid}.contribution_count` を register/delete 成功時に更新
-- Top contributors をフロント表示
+- メニューの「管理」枠からランキング画面へ遷移
+- Top contributors を **Top 10（累計のみ）** 表示
+- `users.is_hidden=true` のユーザーは除外
+- `avatar_path` がある場合のみ署名URLを発行して表示（失敗時はfallback表示）
 
 **テスト**
 - register成功で件数が増える
 - delete成功で件数が減る
 - 同点時の並びが安定する
+- Top 10 のみ表示される
+- 画像なしユーザーは紫背景+先頭文字fallbackで表示される
 
 **合格条件**
-- 最貢献ユーザーを全員が確認できる
+- 最貢献ユーザー（Top 10）を全員が確認できる
 
 ---
 
@@ -724,6 +730,15 @@ flowchart LR
 - `GET /v1/prompts` が snapshot doc（`snapshots/prompts_by_script/docs/{script_id}`）を優先利用する
 - snapshot欠損時に fallback経路でAPIは継続動作する
 - `GET /v1/my-records` は `prompt_text` を返し、prompt docの追加読取を不要化する
+
+### 12.5 Step9 詳細DoD（Top10ランキング）
+- `GET /v1/leaderboard?limit=10` が `200` と `period="all"` を返す
+- 返却順は `contribution_count desc` -> `display_name asc` -> `uid asc`
+- `users.is_hidden=true` はランキングに含まれない
+- `contribution_count<=0` はランキングに含まれない
+- メニューの「ランキング」ボタンからランキング画面に遷移できる
+- 画面はTop10のみ表示し、`更新` ボタンで手動再取得できる
+- ランキング画面表示中に register/delete すると件数が再反映される
 
 ---
 

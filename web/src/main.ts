@@ -14,6 +14,7 @@ import {
   subscribeAuthState,
 } from './auth'
 import { initializeFirebaseAuth } from './firebase'
+import { fetchLeaderboard, type LeaderboardItem } from './leaderboard'
 import { fetchProfile, saveProfile } from './profile'
 import {
   BrowserRecorder,
@@ -51,12 +52,13 @@ const MIN_DRAW_POINTS = 4000
 const MAX_DRAW_POINTS = 30000
 const REDIRECT_RECOVERY_SESSION_KEY = 'moracollect.auth.redirect-recovery'
 const MY_RECORDS_LIMIT = 50
+const LEADERBOARD_LIMIT = 10
 const AVATAR_CROP_CANVAS_SIZE = 320
 const AVATAR_EXPORT_SIZE = 512
 const AVATAR_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 const AVATAR_MIME_TYPE = 'image/webp'
 
-type AppView = 'auth' | 'menu' | 'prompt' | 'recording' | 'manage' | 'account'
+type AppView = 'auth' | 'menu' | 'prompt' | 'recording' | 'manage' | 'account' | 'leaderboard'
 
 function mustGetElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -129,6 +131,7 @@ app.innerHTML = `
           <div class="menu-management-actions">
             <button id="open-manage" type="button">保存音声の管理</button>
             <button id="open-account" type="button">アカウント</button>
+            <button id="open-leaderboard" type="button">ランキング</button>
           </div>
         </section>
 
@@ -203,6 +206,19 @@ app.innerHTML = `
         </div>
       </section>
 
+      <section id="leaderboard-view" class="view card" hidden>
+        <div class="view-actions">
+          <button id="leaderboard-back" type="button" class="ghost">戻る</button>
+        </div>
+
+        <h2 class="view-title">Top contributors</h2>
+        <p id="leaderboard-status" class="leaderboard-status">ランキング: 未取得</p>
+        <ul id="leaderboard-list" class="leaderboard-list"></ul>
+        <div class="leaderboard-actions">
+          <button id="leaderboard-refresh" type="button" class="ghost">更新</button>
+        </div>
+      </section>
+
       <section id="account-view" class="view card" hidden>
         <div class="view-actions">
           <button id="account-back" type="button" class="ghost">戻る</button>
@@ -265,6 +281,7 @@ const menuViewEl = mustGetElement<HTMLElement>('#menu-view')
 const promptViewEl = mustGetElement<HTMLElement>('#prompt-view')
 const recordingViewEl = mustGetElement<HTMLElement>('#recording-view')
 const manageViewEl = mustGetElement<HTMLElement>('#manage-view')
+const leaderboardViewEl = mustGetElement<HTMLElement>('#leaderboard-view')
 const accountViewEl = mustGetElement<HTMLElement>('#account-view')
 
 const statusEl = mustGetElement<HTMLElement>('#status')
@@ -284,6 +301,7 @@ const genreStatusEl = mustGetElement<HTMLElement>('#genre-status')
 const genreGridEl = mustGetElement<HTMLDivElement>('#genre-grid')
 const openManageButton = mustGetElement<HTMLButtonElement>('#open-manage')
 const openAccountButton = mustGetElement<HTMLButtonElement>('#open-account')
+const openLeaderboardButton = mustGetElement<HTMLButtonElement>('#open-leaderboard')
 
 const promptBackButton = mustGetElement<HTMLButtonElement>('#prompt-back')
 const refreshScriptPromptsButton =
@@ -322,6 +340,10 @@ const managePlaybackStatusEl = mustGetElement<HTMLElement>('#manage-playback-sta
 const manageWaveformStatusEl = mustGetElement<HTMLElement>('#manage-waveform-status')
 const manageWaveformCanvasEl = mustGetElement<HTMLCanvasElement>('#manage-waveform-canvas')
 const managePreviewEl = mustGetElement<HTMLAudioElement>('#manage-preview')
+const leaderboardBackButton = mustGetElement<HTMLButtonElement>('#leaderboard-back')
+const leaderboardStatusEl = mustGetElement<HTMLElement>('#leaderboard-status')
+const leaderboardListEl = mustGetElement<HTMLUListElement>('#leaderboard-list')
+const leaderboardRefreshButton = mustGetElement<HTMLButtonElement>('#leaderboard-refresh')
 const accountBackButton = mustGetElement<HTMLButtonElement>('#account-back')
 const avatarFileInputEl = mustGetElement<HTMLInputElement>('#avatar-file-input')
 const avatarCropCanvasEl = mustGetElement<HTMLCanvasElement>('#avatar-crop-canvas')
@@ -377,6 +399,8 @@ let myRecordsCurrentCursor: string | null = null
 let myRecordsPageNumber = 1
 let myRecordsPreviousCursors: Array<string | null> = []
 let myRecordsLoading = false
+let leaderboardItems: LeaderboardItem[] = []
+let leaderboardLoading = false
 const deletingRecordIds = new Set<string>()
 const loadingRecordIds = new Set<string>()
 let availableScripts: ScriptItem[] = []
@@ -411,6 +435,7 @@ function setView(nextView: AppView): void {
   promptViewEl.hidden = currentView !== 'prompt'
   recordingViewEl.hidden = currentView !== 'recording'
   manageViewEl.hidden = currentView !== 'manage'
+  leaderboardViewEl.hidden = currentView !== 'leaderboard'
   accountViewEl.hidden = currentView !== 'account'
 
   if (currentUser && previousView !== currentView) {
@@ -1106,6 +1131,106 @@ function refreshLocalStatsViews(): void {
   updateSelectedPromptLabel()
 }
 
+function resolveLeaderboardDisplayName(item: LeaderboardItem): string {
+  const normalized = item.display_name.trim()
+  if (normalized) {
+    return normalized
+  }
+  return item.uid
+}
+
+function renderLeaderboard(items: LeaderboardItem[]): void {
+  leaderboardListEl.innerHTML = ''
+  if (items.length === 0) {
+    const emptyEl = document.createElement('li')
+    emptyEl.className = 'leaderboard-item empty'
+    emptyEl.textContent = 'ランキングデータがありません。'
+    leaderboardListEl.append(emptyEl)
+    return
+  }
+
+  for (const item of items) {
+    const li = document.createElement('li')
+    li.className = 'leaderboard-item'
+
+    const rankEl = document.createElement('span')
+    rankEl.className = 'leaderboard-rank'
+    rankEl.textContent = `#${item.rank}`
+
+    const avatarEl = document.createElement('div')
+    avatarEl.className = 'leaderboard-avatar'
+
+    const avatarImgEl = document.createElement('img')
+    avatarImgEl.className = 'leaderboard-avatar-image'
+    avatarImgEl.alt = `${resolveLeaderboardDisplayName(item)} avatar`
+    avatarImgEl.hidden = true
+
+    const avatarFallbackEl = document.createElement('span')
+    avatarFallbackEl.className = 'leaderboard-avatar-fallback'
+    avatarFallbackEl.textContent = getAvatarFallbackChar(resolveLeaderboardDisplayName(item))
+    avatarFallbackEl.hidden = false
+
+    if (item.avatar_url) {
+      avatarImgEl.src = item.avatar_url
+      avatarImgEl.hidden = false
+      avatarFallbackEl.hidden = true
+      avatarImgEl.addEventListener('error', () => {
+        avatarImgEl.hidden = true
+        avatarImgEl.removeAttribute('src')
+        avatarFallbackEl.hidden = false
+      })
+    }
+
+    avatarEl.append(avatarImgEl, avatarFallbackEl)
+
+    const bodyEl = document.createElement('div')
+    bodyEl.className = 'leaderboard-body'
+
+    const nameEl = document.createElement('span')
+    nameEl.className = 'leaderboard-name'
+    nameEl.textContent = resolveLeaderboardDisplayName(item)
+
+    const countEl = document.createElement('span')
+    countEl.className = 'leaderboard-count'
+    countEl.textContent = `${item.contribution_count} 件`
+
+    bodyEl.append(nameEl, countEl)
+    li.append(rankEl, avatarEl, bodyEl)
+    leaderboardListEl.append(li)
+  }
+}
+
+function resetLeaderboardState(statusText: string): void {
+  leaderboardItems = []
+  leaderboardLoading = false
+  leaderboardStatusEl.textContent = statusText
+  renderLeaderboard(leaderboardItems)
+}
+
+async function loadLeaderboard(user: User): Promise<void> {
+  if (leaderboardLoading) {
+    return
+  }
+
+  leaderboardLoading = true
+  leaderboardRefreshButton.disabled = true
+  leaderboardStatusEl.textContent = 'ランキング: 読み込み中...'
+  setRecordingButtonsState()
+
+  try {
+    const idToken = await user.getIdToken()
+    const response = await fetchLeaderboard(idToken, LEADERBOARD_LIMIT)
+    leaderboardItems = response.leaderboard
+    renderLeaderboard(leaderboardItems)
+    leaderboardStatusEl.textContent = `ランキング: 読み込み完了 (${leaderboardItems.length})`
+  } catch (error) {
+    leaderboardStatusEl.textContent = `ランキング: 取得失敗 (${getApiErrorMessage(error)})`
+  } finally {
+    leaderboardLoading = false
+    setRecordingButtonsState()
+  }
+}
+
 function resetMyRecordsPaginationState(): void {
   myRecordsHasNextPage = false
   myRecordsNextCursor = null
@@ -1312,9 +1437,12 @@ function setRecordingButtonsState(): void {
     refreshScriptPromptsButton.disabled = true
     openManageButton.disabled = true
     openAccountButton.disabled = true
+    openLeaderboardButton.disabled = true
     promptBackButton.disabled = true
     recordingBackButton.disabled = true
     manageBackButton.disabled = true
+    leaderboardBackButton.disabled = true
+    leaderboardRefreshButton.disabled = true
     accountBackButton.disabled = true
     recordingStartButton.disabled = true
     recordingStopButton.disabled = true
@@ -1330,9 +1458,12 @@ function setRecordingButtonsState(): void {
   refreshScriptPromptsButton.disabled = !selectedScriptId
   openManageButton.disabled = state === 'recording'
   openAccountButton.disabled = state === 'recording'
+  openLeaderboardButton.disabled = state === 'recording'
   promptBackButton.disabled = state === 'recording'
   recordingBackButton.disabled = state === 'recording'
   manageBackButton.disabled = state === 'recording'
+  leaderboardBackButton.disabled = state === 'recording'
+  leaderboardRefreshButton.disabled = state === 'recording' || leaderboardLoading
   accountBackButton.disabled = state === 'recording'
 
   const hasPromptSelection = Boolean(selectedScriptId && selectedPromptId)
@@ -1659,6 +1790,9 @@ async function handleDeleteMyRecord(recordId: string): Promise<void> {
         previousCursors,
       })
     }
+    if (currentView === 'leaderboard') {
+      void loadLeaderboard(currentUser)
+    }
   } catch (error) {
     myRecordsStatusEl.textContent = `My records: delete failed (${getApiErrorMessage(error)})`
   } finally {
@@ -1721,6 +1855,9 @@ async function runRegisterForDraft(user: User, draft: RegisterDraft): Promise<vo
       ? 'Register status: already registered'
       : 'Register status: registered'
     void loadMyRecords(user)
+    if (currentView === 'leaderboard') {
+      void loadLeaderboard(user)
+    }
   } catch (error) {
     uploadCompletedForCurrentRecording = false
     updateUploadButtonState()
@@ -2131,6 +2268,7 @@ clearManageWaveformView('Waveform: waiting for load')
 resetAvatarEditor('Avatar status: waiting for selection')
 resetMyRecordsPaginationState()
 updateMyRecordsPaginationControls()
+resetLeaderboardState('ランキング: 未取得')
 
 let auth: Auth | null = null
 try {
@@ -2165,6 +2303,7 @@ try {
   resetMyRecordsPaginationState()
   myRecordsItems = []
   renderMyRecords(myRecordsItems)
+  resetLeaderboardState('ランキング: disabled (Firebase init failed)')
   apiStatusEl.textContent = 'API status: disabled'
   apiResultEl.textContent = 'Firebase init failed. Configure web/.env.local first.'
 }
@@ -2191,6 +2330,7 @@ if (auth) {
     if (user) {
       errorEl.textContent = ''
       shellErrorEl.textContent = ''
+      resetLeaderboardState('ランキング: 未取得')
       setView('menu')
       setRecordingIdleState()
       void loadGenres(user)
@@ -2218,6 +2358,7 @@ if (auth) {
       resetMyRecordsPaginationState()
       myRecordsItems = []
       renderMyRecords(myRecordsItems)
+      resetLeaderboardState('ランキング: waiting for sign-in')
       void setRecordingSignedOutState()
       closeLogoutModal()
       setView('auth')
@@ -2331,6 +2472,14 @@ if (auth) {
     setView('account')
   })
 
+  openLeaderboardButton.addEventListener('click', () => {
+    if (!currentUser) {
+      return
+    }
+    setView('leaderboard')
+    void loadLeaderboard(currentUser)
+  })
+
   promptBackButton.addEventListener('click', () => {
     setView('menu')
   })
@@ -2340,6 +2489,10 @@ if (auth) {
   })
 
   manageBackButton.addEventListener('click', () => {
+    setView('menu')
+  })
+
+  leaderboardBackButton.addEventListener('click', () => {
     setView('menu')
   })
 
@@ -2357,6 +2510,14 @@ if (auth) {
 
   refreshScriptPromptsButton.addEventListener('click', async () => {
     await handleRefreshScriptPromptStats()
+  })
+
+  leaderboardRefreshButton.addEventListener('click', async () => {
+    if (!currentUser) {
+      leaderboardStatusEl.textContent = 'ランキング: sign in first'
+      return
+    }
+    await loadLeaderboard(currentUser)
   })
 
   recordingStartButton.addEventListener('click', async () => {
