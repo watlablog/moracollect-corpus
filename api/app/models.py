@@ -120,6 +120,8 @@ class MyRecordItem(BaseModel):
 class MyRecordsResponse(BaseModel):
     ok: bool
     records: list[MyRecordItem]
+    has_next: bool = False
+    next_cursor: str | None = None
 
 
 class DeleteMyRecordResponse(BaseModel):

@@ -188,6 +188,11 @@ app.innerHTML = `
 
         <h2 class="view-title">保存音声の管理</h2>
         <p id="my-records-status" class="my-records-status">My records: waiting for sign-in</p>
+        <div class="my-records-pagination">
+          <button id="my-records-prev" type="button" class="ghost">戻る</button>
+          <span id="my-records-page" class="my-records-page">1 / 1</span>
+          <button id="my-records-next" type="button" class="ghost">次へ</button>
+        </div>
         <ul id="my-records-list" class="my-records-list"></ul>
 
         <div class="manage-preview-block">
@@ -309,6 +314,9 @@ const registerStatusEl = mustGetElement<HTMLElement>('#register-status')
 
 const manageBackButton = mustGetElement<HTMLButtonElement>('#manage-back')
 const myRecordsStatusEl = mustGetElement<HTMLElement>('#my-records-status')
+const myRecordsPrevButton = mustGetElement<HTMLButtonElement>('#my-records-prev')
+const myRecordsPageEl = mustGetElement<HTMLElement>('#my-records-page')
+const myRecordsNextButton = mustGetElement<HTMLButtonElement>('#my-records-next')
 const myRecordsListEl = mustGetElement<HTMLUListElement>('#my-records-list')
 const managePlaybackStatusEl = mustGetElement<HTMLElement>('#manage-playback-status')
 const manageWaveformStatusEl = mustGetElement<HTMLElement>('#manage-waveform-status')
@@ -363,6 +371,12 @@ let uploadInProgress = false
 let uploadCompletedForCurrentRecording = false
 let pendingRegisterDraft: RegisterDraft | null = null
 let myRecordsItems: MyRecordItem[] = []
+let myRecordsHasNextPage = false
+let myRecordsNextCursor: string | null = null
+let myRecordsCurrentCursor: string | null = null
+let myRecordsPageNumber = 1
+let myRecordsPreviousCursors: Array<string | null> = []
+let myRecordsLoading = false
 const deletingRecordIds = new Set<string>()
 const loadingRecordIds = new Set<string>()
 let availableScripts: ScriptItem[] = []
@@ -1092,6 +1106,35 @@ function refreshLocalStatsViews(): void {
   updateSelectedPromptLabel()
 }
 
+function resetMyRecordsPaginationState(): void {
+  myRecordsHasNextPage = false
+  myRecordsNextCursor = null
+  myRecordsCurrentCursor = null
+  myRecordsPageNumber = 1
+  myRecordsPreviousCursors = []
+  myRecordsLoading = false
+}
+
+function updateMyRecordsPaginationControls(): void {
+  const canMovePrev =
+    Boolean(currentUser) &&
+    !myRecordsLoading &&
+    recorder.getState() !== 'recording' &&
+    myRecordsPreviousCursors.length > 0
+  const canMoveNext =
+    Boolean(currentUser) &&
+    !myRecordsLoading &&
+    recorder.getState() !== 'recording' &&
+    myRecordsHasNextPage &&
+    Boolean(myRecordsNextCursor)
+
+  myRecordsPrevButton.disabled = !canMovePrev
+  myRecordsNextButton.disabled = !canMoveNext
+
+  const totalLabel = myRecordsHasNextPage ? '?' : String(myRecordsPageNumber)
+  myRecordsPageEl.textContent = `${myRecordsPageNumber} / ${totalLabel}`
+}
+
 function renderMyRecords(items: MyRecordItem[]): void {
   myRecordsListEl.innerHTML = ''
   if (items.length === 0) {
@@ -1099,6 +1142,7 @@ function renderMyRecords(items: MyRecordItem[]): void {
     li.className = 'my-record-item empty'
     li.textContent = 'まだ音声がありません。'
     myRecordsListEl.append(li)
+    updateMyRecordsPaginationControls()
     return
   }
 
@@ -1148,6 +1192,7 @@ function renderMyRecords(items: MyRecordItem[]): void {
     li.append(row)
     myRecordsListEl.append(li)
   }
+  updateMyRecordsPaginationControls()
 }
 
 function stopRecordingCountdown(): void {
@@ -1276,6 +1321,7 @@ function setRecordingButtonsState(): void {
     setAvatarControlsDisabled(true)
     updateUploadButtonState()
     renderMyRecords(myRecordsItems)
+    updateMyRecordsPaginationControls()
     return
   }
 
@@ -1297,6 +1343,7 @@ function setRecordingButtonsState(): void {
   setAvatarControlsDisabled(state === 'recording')
   updateUploadButtonState()
   renderMyRecords(myRecordsItems)
+  updateMyRecordsPaginationControls()
 }
 
 function isRecorderError(error: unknown): error is RecorderError {
@@ -1412,19 +1459,84 @@ async function runPing(user: User): Promise<void> {
   }
 }
 
-async function loadMyRecords(user: User): Promise<void> {
+type LoadMyRecordsOptions = {
+  reset?: boolean
+  cursor?: string | null
+  pageNumber?: number
+  previousCursors?: Array<string | null>
+}
+
+async function loadMyRecords(
+  user: User,
+  options: LoadMyRecordsOptions = {},
+): Promise<boolean> {
+  if (options.reset) {
+    resetMyRecordsPaginationState()
+  }
+
+  const targetCursor =
+    options.cursor === undefined ? myRecordsCurrentCursor : options.cursor
+  const targetPageNumber = options.pageNumber ?? myRecordsPageNumber
+  const targetPreviousCursors = options.previousCursors ?? myRecordsPreviousCursors
+
+  myRecordsLoading = true
+  updateMyRecordsPaginationControls()
   myRecordsStatusEl.textContent = 'My records: loading ...'
+
   try {
     const idToken = await user.getIdToken()
-    const response = await fetchMyRecords(idToken, MY_RECORDS_LIMIT)
+    const response = await fetchMyRecords(idToken, MY_RECORDS_LIMIT, targetCursor)
+
     myRecordsItems = response.records
+    myRecordsCurrentCursor = targetCursor ?? null
+    myRecordsPageNumber = targetPageNumber
+    myRecordsPreviousCursors = [...targetPreviousCursors]
+    myRecordsHasNextPage = response.has_next
+    myRecordsNextCursor = response.next_cursor
+
     renderMyRecords(myRecordsItems)
     myRecordsStatusEl.textContent = `My records: loaded (${myRecordsItems.length})`
+    return true
   } catch (error) {
-    myRecordsItems = []
-    renderMyRecords(myRecordsItems)
+    if (options.reset) {
+      myRecordsItems = []
+      renderMyRecords(myRecordsItems)
+    }
     myRecordsStatusEl.textContent = `My records: failed (${getApiErrorMessage(error)})`
+    return false
+  } finally {
+    myRecordsLoading = false
+    updateMyRecordsPaginationControls()
   }
+}
+
+async function handleMyRecordsNextPage(): Promise<void> {
+  if (!currentUser || !myRecordsHasNextPage || !myRecordsNextCursor || myRecordsLoading) {
+    return
+  }
+
+  const nextPageNumber = myRecordsPageNumber + 1
+  const previousCursors = [...myRecordsPreviousCursors, myRecordsCurrentCursor]
+  await loadMyRecords(currentUser, {
+    cursor: myRecordsNextCursor,
+    pageNumber: nextPageNumber,
+    previousCursors,
+  })
+}
+
+async function handleMyRecordsPrevPage(): Promise<void> {
+  if (!currentUser || myRecordsLoading || myRecordsPreviousCursors.length === 0) {
+    return
+  }
+
+  const previousCursors = [...myRecordsPreviousCursors]
+  const targetCursor = previousCursors.pop() ?? null
+  const targetPageNumber = Math.max(1, myRecordsPageNumber - 1)
+  await loadMyRecords(currentUser, {
+    cursor: targetCursor,
+    pageNumber: targetPageNumber,
+    previousCursors,
+  })
 }
 
 async function handleLoadMyRecord(item: MyRecordItem): Promise<void> {
@@ -1537,7 +1649,16 @@ async function handleDeleteMyRecord(recordId: string): Promise<void> {
     if (loadedRecordId === recordId) {
       clearManagePlaybackState()
     }
-    await loadMyRecords(currentUser)
+    const loaded = await loadMyRecords(currentUser)
+    if (loaded && myRecordsItems.length === 0 && myRecordsPreviousCursors.length > 0) {
+      const previousCursors = [...myRecordsPreviousCursors]
+      const targetCursor = previousCursors.pop() ?? null
+      await loadMyRecords(currentUser, {
+        cursor: targetCursor,
+        pageNumber: Math.max(1, myRecordsPageNumber - 1),
+        previousCursors,
+      })
+    }
   } catch (error) {
     myRecordsStatusEl.textContent = `My records: delete failed (${getApiErrorMessage(error)})`
   } finally {
@@ -2008,6 +2129,8 @@ async function confirmLogout(): Promise<void> {
 clearRecordingWaveformView('Waveform: waiting for recording')
 clearManageWaveformView('Waveform: waiting for load')
 resetAvatarEditor('Avatar status: waiting for selection')
+resetMyRecordsPaginationState()
+updateMyRecordsPaginationControls()
 
 let auth: Auth | null = null
 try {
@@ -2039,7 +2162,9 @@ try {
   registerStatusEl.textContent = 'Register status: disabled (Firebase init failed)'
   avatarStatusEl.textContent = 'Avatar status: disabled (Firebase init failed)'
   myRecordsStatusEl.textContent = 'My records: disabled (Firebase init failed)'
-  myRecordsListEl.innerHTML = ''
+  resetMyRecordsPaginationState()
+  myRecordsItems = []
+  renderMyRecords(myRecordsItems)
   apiStatusEl.textContent = 'API status: disabled'
   apiResultEl.textContent = 'Firebase init failed. Configure web/.env.local first.'
 }
@@ -2071,7 +2196,7 @@ if (auth) {
       void loadGenres(user)
       void loadProfile(user)
       void runPing(user)
-      void loadMyRecords(user)
+      void loadMyRecords(user, { reset: true })
     } else {
       deletingRecordIds.clear()
       loadingRecordIds.clear()
@@ -2090,8 +2215,9 @@ if (auth) {
       apiResultEl.textContent = ''
       resetRegisterState('Register status: waiting for sign-in')
       myRecordsStatusEl.textContent = 'My records: waiting for sign-in'
+      resetMyRecordsPaginationState()
       myRecordsItems = []
-      myRecordsListEl.innerHTML = ''
+      renderMyRecords(myRecordsItems)
       void setRecordingSignedOutState()
       closeLogoutModal()
       setView('auth')
@@ -2195,7 +2321,7 @@ if (auth) {
       return
     }
     setView('manage')
-    void loadMyRecords(currentUser)
+    void loadMyRecords(currentUser, { reset: true })
   })
 
   openAccountButton.addEventListener('click', () => {
@@ -2219,6 +2345,14 @@ if (auth) {
 
   accountBackButton.addEventListener('click', () => {
     setView('menu')
+  })
+
+  myRecordsPrevButton.addEventListener('click', async () => {
+    await handleMyRecordsPrevPage()
+  })
+
+  myRecordsNextButton.addEventListener('click', async () => {
+    await handleMyRecordsNextPage()
   })
 
   refreshScriptPromptsButton.addEventListener('click', async () => {

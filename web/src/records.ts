@@ -30,6 +30,8 @@ export type MyRecordItem = {
 export type MyRecordsResponse = {
   ok: boolean
   records: MyRecordItem[]
+  has_next: boolean
+  next_cursor: string | null
 }
 
 export type DeleteMyRecordResponse = {
@@ -91,9 +93,16 @@ export async function registerRecord(
 export async function fetchMyRecords(
   idToken: string,
   limit = 10,
+  cursor?: string | null,
 ): Promise<MyRecordsResponse> {
+  const searchParams = new URLSearchParams()
+  searchParams.set('limit', String(limit))
+  if (cursor) {
+    searchParams.set('cursor', cursor)
+  }
+
   const response = await fetch(
-    `${getApiBaseUrl()}/v1/my-records?limit=${encodeURIComponent(String(limit))}`,
+    `${getApiBaseUrl()}/v1/my-records?${searchParams.toString()}`,
     {
       method: 'GET',
       headers: {

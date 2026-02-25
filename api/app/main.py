@@ -1523,6 +1523,7 @@ def get_my_records(
         ge=1,
         le=MAX_MY_RECORDS_LIMIT,
     ),
+    cursor: str | None = Query(default=None),
     decoded_token: dict = Depends(verify_id_token),
 ) -> MyRecordsResponse:
     uid = get_uid_from_token(decoded_token)
@@ -1531,17 +1532,31 @@ def get_my_records(
         query = (
             get_user_records_collection(uid)
             .order_by("created_at", direction=admin_firestore.Query.DESCENDING)
-            .limit(limit)
+            .limit(limit + 1)
         )
+        if cursor:
+            cursor_snapshot = get_user_record_doc_ref(uid, cursor).get()
+            if not cursor_snapshot.exists:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="cursor record not found",
+                )
+            query = query.start_after(cursor_snapshot)
         snapshots = query.stream()
+        snapshot_list = list(snapshots)
     except Exception as exc:  # noqa: BLE001
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to load my records",
         ) from exc
 
+    has_next = len(snapshot_list) > limit
+    page_snapshots = snapshot_list[:limit]
+
     records: list[MyRecordItem] = []
-    for snapshot in snapshots:
+    for snapshot in page_snapshots:
         data = snapshot.to_dict() or {}
         prompt_id = as_optional_str(data.get("prompt_id")) or STEP6_DEFAULT_PROMPT_ID
         records.append(
@@ -1560,7 +1575,16 @@ def get_my_records(
             )
         )
 
-    return MyRecordsResponse(ok=True, records=records)
+    next_cursor = None
+    if has_next and records:
+        next_cursor = records[-1].record_id
+
+    return MyRecordsResponse(
+        ok=True,
+        records=records,
+        has_next=has_next,
+        next_cursor=next_cursor,
+    )
 
 
 @app.get(

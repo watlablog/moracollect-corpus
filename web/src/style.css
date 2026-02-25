@@ -484,6 +484,20 @@ h2 {
   color: #1e3a8a;
 }
 
+.my-records-pagination {
+  margin-top: 0.45rem;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.my-records-page {
+  min-width: 68px;
+  text-align: center;
+  font-size: 0.83rem;
+  color: #4b5563;
+}
+
 .my-records-list {
   margin: 0.55rem 0 0;
   padding-left: 1.1rem;
