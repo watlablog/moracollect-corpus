@@ -404,6 +404,7 @@ let leaderboardLoading = false
 const deletingRecordIds = new Set<string>()
 const loadingRecordIds = new Set<string>()
 let availableScripts: ScriptItem[] = []
+let isGenresLoading = false
 let availablePrompts: PromptItem[] = []
 let selectedScriptId: string | null = null
 let selectedPromptId: string | null = null
@@ -825,6 +826,15 @@ function updateSelectedPromptLabel(): void {
 
 function renderGenreButtons(): void {
   genreGridEl.innerHTML = ''
+
+  if (isGenresLoading) {
+    const loadingEl = document.createElement('p')
+    loadingEl.className = 'genre-empty'
+    loadingEl.textContent = '読み込み中…'
+    genreGridEl.append(loadingEl)
+    return
+  }
+
   const sorted = sortScriptsForDisplay(availableScripts)
 
   if (sorted.length === 0) {
@@ -917,12 +927,15 @@ function updatePromptButtonsDisabled(disabled: boolean): void {
 }
 
 async function loadGenres(user: User, preserveSelection = true): Promise<void> {
-  genreStatusEl.textContent = 'ジャンル: 読み込み中 ...'
+  isGenresLoading = true
+  renderGenreButtons()
+  genreStatusEl.textContent = 'ジャンル: 読み込み中…'
 
   try {
     const idToken = await user.getIdToken()
     const response = await fetchScripts(idToken)
     availableScripts = response.scripts
+    isGenresLoading = false
 
     if (availableScripts.length === 0) {
       selectedScriptId = null
@@ -953,6 +966,7 @@ async function loadGenres(user: User, preserveSelection = true): Promise<void> {
     updateSelectedPromptLabel()
     genreStatusEl.textContent = `ジャンル: loaded (${availableScripts.length})`
   } catch (error) {
+    isGenresLoading = false
     availableScripts = []
     selectedScriptId = null
     selectedPromptId = null
@@ -1563,6 +1577,7 @@ async function setRecordingSignedOutState(): Promise<void> {
 }
 
 function setPromptSignedOutState(): void {
+  isGenresLoading = false
   availableScripts = []
   availablePrompts = []
   selectedScriptId = null
