@@ -1,7 +1,7 @@
 # MoraCollect
 
 MoraCollect is a corpus collection web app.
-This repository currently implements Step 0-9 scope from `DESIGN.md`:
+This repository currently implements Step 0-9 and Step10-A scope from `DESIGN.md`:
 
 - Step 0: public web page on Firebase Hosting
 - Step 1: Google sign-in/sign-out with Firebase Auth
@@ -13,6 +13,7 @@ This repository currently implements Step 0-9 scope from `DESIGN.md`:
 - Step 7: script/prompt selection UI + prompt progress stats (`total_records`, `unique_speakers`)
 - Step 8: delete own records (Firestore + Storage) via `DELETE /v1/my-records/{record_id}`
 - Step 9: top contributors leaderboard (`GET /v1/leaderboard`)
+- Step 10-A: admin batch export (raw download + wav conversion with phoneme filename)
 
 Beginner tutorials (JP):
 
@@ -25,6 +26,7 @@ Beginner tutorials (JP):
 - `07-Tutorial-Step7-Prompt-Selection.md`
 - `08-Tutorial-Step8-Delete-Own-Records.md`
 - `09-Tutorial-Step9-Leaderboard.md`
+- `10-Tutorial-Step10-Admin-Wav-Export.md`
 
 ## Tech stack (current)
 
@@ -594,3 +596,93 @@ deactivate
 4. Confirm:
   - user A rank is above user B
   - count values match expected non-deleted records
+
+## 13. Step10-A: Admin batch export (raw -> wav)
+
+Step10-A adds an admin-only offline workflow.  
+The web app/API behavior is unchanged.
+
+### 13-1. What it does
+
+- Reads `records` from Firestore (`status in uploaded/processed`, `raw_path` present)
+- Downloads each raw object from Storage
+- Converts with ffmpeg to `16kHz mono s16 wav`
+- Saves files as:
+  - `exports/wav/<phoneme_slug>/<phoneme_slug>__<uid>__<record_id>.wav`
+- Writes manifest CSV:
+  - `exports/manifests/export_<timestamp>.csv`
+
+### 13-2. New files
+
+- Script: `api/scripts/export_wav_dataset.py`
+- Mapping: `infra/mappings/prompt_phonemes.csv`
+
+Mapping CSV columns:
+
+- required: `prompt_id`, `prompt_text`, `phoneme_seq`
+- optional: `phoneme_slug` (auto-generated from `phoneme_seq` when omitted)
+
+### 13-3. Prepare environment
+
+```bash
+cd api
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+Check ffmpeg:
+
+```bash
+ffmpeg -version
+```
+
+Configure ADC:
+
+```bash
+gcloud auth application-default login
+gcloud auth application-default set-quota-project moracollect-watlab
+```
+
+### 13-4. Dry run
+
+```bash
+cd api
+python3 scripts/export_wav_dataset.py \
+  --bucket moracollect-watlab.firebasestorage.app \
+  --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --dry-run
+```
+
+### 13-5. Full export
+
+```bash
+cd api
+python3 scripts/export_wav_dataset.py \
+  --bucket moracollect-watlab.firebasestorage.app \
+  --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --out-dir ../exports
+```
+
+Useful optional flags:
+
+- `--limit <n>`
+- `--uid <uid>`
+- `--script-id <id>`
+- `--prompt-id <id>`
+- `--since <ISO8601>`
+- `--until <ISO8601>`
+- `--overwrite`
+- `--keep-temp-raw`
+
+### 13-6. Error handling policy
+
+- Mapping missing -> `failed` (continue)
+- Raw object missing -> `failed` (continue)
+- ffmpeg failure -> `failed` (continue)
+- Final summary prints `total/exported/skipped/failed`
+
+### 13-7. Important notes
+
+- Step10-A is read-only against Firestore (no status update, no qc writeback)
+- Cost impact is mainly Storage download + local compute
+- Exported artifacts under `exports/` are git-ignored

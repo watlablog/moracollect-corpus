@@ -26,7 +26,7 @@
   - script: `s-gojuon`（表示名 `50音`）1件
   - prompts: 104件（清音46 + 濁音/半濁音25 + 拗音33）
   - 表示順: `order` による固定50音順
-- 次アクション: **Step10（raw→wav 変換 + QC）**
+- 次アクション: **Step10-A（管理者ローカル一括 raw→wav 変換）**
 
 ---
 
@@ -675,25 +675,36 @@ flowchart LR
 
 ---
 
-### Step 10: raw → wav(16kHz) 変換 + QC（Cloud Run Jobs）
+### Step 10: 管理者向け raw → wav(16kHz) 一括エクスポート（ローカルバッチ）
 **実装**
-- Job を手動実行して変換確認
-- 変換後に `wav_path` と `qc` と `status=processed` を更新
+- 管理者PCで実行する `api/scripts/export_wav_dataset.py` を追加
+- `infra/mappings/prompt_phonemes.csv` を正本として `prompt_id -> pydomino音素列` を解決
+- Storage `raw_path` を一括ダウンロードし、`ffmpeg` で `16kHz mono s16 wav` へ変換
+- 出力先: `exports/wav/{phoneme_slug}/{phoneme_slug}__{uid}__{record_id}.wav`
+- 結果を `exports/manifests/export_<timestamp>.csv` に記録
+- この段階では Firestore の `status/wav_path/qc` は更新しない
 
 **テスト**
-- wavが生成される（16kHz/mono）
-- qcが入る（duration, clippedなど）
-- 失敗時に failed になる
+- dry-runで対象件数を確認できる
+- 本実行でwavが生成される（16kHz/mono）
+- `prompt_id` 未マップ・raw欠損・ffmpeg失敗が `failed` としてmanifestに残る
+- 例外が1件あっても全体処理は継続する
 
 **合格条件**
-- 学習用に統一されたwavが得られる
+- 学習開発者が管理者権限で raw を一括収集し、音素列付きファイル名で wav を得られる
+- 既存Web/API機能へ回帰を出さない
+
+**次段（Step10-B）**
+- Cloud Run Jobs 化
+- `wav_path` と `qc` を Firestore `records` へ反映
+- `status=processed/failed` 遷移を自動化
 
 ---
 
 ## 12. 受け入れ基準（Definition of Done）
 - ログインして録音し、アップロードできる
 - recordsがFirestoreに溜まり、statusが追跡できる
-- rawがwav(16kHz)に変換され、QCが付く
+- 管理者が raw を wav(16kHz) に一括変換して取得できる
 - script別の「話者数」「データ数」が見える
 - ランキングが表示できる（累計、必要なら週/月も）
 
@@ -739,6 +750,14 @@ flowchart LR
 - メニューの「ランキング」ボタンからランキング画面に遷移できる
 - 画面はTop10のみ表示し、`更新` ボタンで手動再取得できる
 - ランキング画面表示中に register/delete すると件数が再反映される
+
+### 12.6 Step10-A 詳細DoD（管理者ローカル一括wavエクスポート）
+- `api/scripts/export_wav_dataset.py` が `--bucket` と `--mapping-csv` で実行できる
+- `--dry-run` でダウンロード/変換なしの対象件数確認ができる
+- 変換成功時に `exports/wav/<phoneme_slug>/<phoneme_slug>__<uid>__<record_id>.wav` が生成される
+- 実行結果が `exports/manifests/export_<timestamp>.csv` に `exported/skipped/failed` で記録される
+- `prompt_id` 未マップ・raw欠損・ffmpeg失敗が `failed` で継続処理される
+- Firestoreデータは読み取りのみで更新しない
 
 ---
 

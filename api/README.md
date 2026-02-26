@@ -45,6 +45,21 @@ python3 scripts/backfill_contribution_counts.py --dry-run
 python3 scripts/backfill_contribution_counts.py
 ```
 
+## Admin wav export (Step10-A)
+
+```bash
+cd api
+python3 scripts/export_wav_dataset.py \
+  --bucket moracollect-watlab.firebasestorage.app \
+  --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --dry-run
+
+python3 scripts/export_wav_dataset.py \
+  --bucket moracollect-watlab.firebasestorage.app \
+  --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --out-dir ../exports
+```
+
 ## Deploy to Cloud Run
 
 ```bash
