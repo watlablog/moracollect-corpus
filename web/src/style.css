@@ -368,6 +368,30 @@ h2 {
   min-width: 100%;
 }
 
+.prompt-grid.has-groups {
+  display: block;
+}
+
+.prompt-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  width: max-content;
+  min-width: 100%;
+}
+
+.prompt-row {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 120px));
+  gap: 0.55rem;
+  width: max-content;
+}
+
+.prompt-cell-empty {
+  width: 100%;
+  min-height: 1px;
+}
+
 .prompt-button {
   width: 100%;
   border-radius: 10px;

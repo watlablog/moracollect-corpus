@@ -57,6 +57,39 @@ const AVATAR_CROP_CANVAS_SIZE = 320
 const AVATAR_EXPORT_SIZE = 512
 const AVATAR_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 const AVATAR_MIME_TYPE = 'image/webp'
+const GOJUON_PROMPT_GROUP_SIZES = [
+  5, 5, 5, 5, 5, 5, 5, 3, 5, 2, 1, 5, 5, 5, 5, 5, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+  3, 3,
+]
+const GOJUON_PROMPT_ROW_PATTERNS = [
+  [0, 1, 2, 3, 4], // あ行
+  [0, 1, 2, 3, 4], // か行
+  [0, 1, 2, 3, 4], // さ行
+  [0, 1, 2, 3, 4], // た行
+  [0, 1, 2, 3, 4], // な行
+  [0, 1, 2, 3, 4], // は行
+  [0, 1, 2, 3, 4], // ま行
+  [0, 2, 4], // や行: や/ゆ/よ は a/u/o 列
+  [0, 1, 2, 3, 4], // ら行
+  [0, 4], // わ行: わ/を は a/o 列
+  [2], // ん は独立（中央列）
+  [0, 1, 2, 3, 4], // が行
+  [0, 1, 2, 3, 4], // ざ行
+  [0, 1, 2, 3, 4], // だ行
+  [0, 1, 2, 3, 4], // ば行
+  [0, 1, 2, 3, 4], // ぱ行
+  [0, 2, 4], // きゃ行
+  [0, 2, 4], // ぎゃ行
+  [0, 2, 4], // しゃ行
+  [0, 2, 4], // じゃ行
+  [0, 2, 4], // ちゃ行
+  [0, 2, 4], // にゃ行
+  [0, 2, 4], // ひゃ行
+  [0, 2, 4], // びゃ行
+  [0, 2, 4], // ぴゃ行
+  [0, 2, 4], // みゃ行
+  [0, 2, 4], // りゃ行
+]
 
 type AppView = 'auth' | 'menu' | 'prompt' | 'recording' | 'manage' | 'account' | 'leaderboard'
 
@@ -790,6 +823,50 @@ function sortPromptsForDisplay(prompts: PromptItem[]): PromptItem[] {
   })
 }
 
+function buildGojuonPromptRows(prompts: PromptItem[]): Array<Array<PromptItem | null>> | null {
+  if (prompts.length !== 104) {
+    return null
+  }
+  if (GOJUON_PROMPT_GROUP_SIZES.length !== GOJUON_PROMPT_ROW_PATTERNS.length) {
+    return null
+  }
+
+  const rows: Array<Array<PromptItem | null>> = []
+  let startIndex = 0
+  for (let rowIndex = 0; rowIndex < GOJUON_PROMPT_GROUP_SIZES.length; rowIndex += 1) {
+    const rowSize = GOJUON_PROMPT_GROUP_SIZES[rowIndex]
+    const pattern = GOJUON_PROMPT_ROW_PATTERNS[rowIndex]
+    if (pattern.length !== rowSize) {
+      return null
+    }
+    const endIndex = startIndex + rowSize
+    if (endIndex > prompts.length) {
+      return null
+    }
+    const row = prompts.slice(startIndex, endIndex)
+    if (row.length !== rowSize) {
+      return null
+    }
+
+    const rowSlots: Array<PromptItem | null> = [null, null, null, null, null]
+    for (let i = 0; i < pattern.length; i += 1) {
+      const slotIndex = pattern[i]
+      if (slotIndex < 0 || slotIndex > 4) {
+        return null
+      }
+      rowSlots[slotIndex] = row[i]
+    }
+    rows.push(rowSlots)
+    startIndex = endIndex
+  }
+
+  if (startIndex !== prompts.length) {
+    return null
+  }
+
+  return rows
+}
+
 function findSelectedScript(): ScriptItem | null {
   if (!selectedScriptId) {
     return null
@@ -871,6 +948,7 @@ function renderGenreButtons(): void {
 
 function renderPromptButtons(): void {
   promptGridEl.innerHTML = ''
+  promptGridEl.classList.remove('has-groups')
   const sortedPrompts = sortPromptsForDisplay(availablePrompts)
 
   if (sortedPrompts.length === 0) {
@@ -881,7 +959,7 @@ function renderPromptButtons(): void {
     return
   }
 
-  for (const prompt of sortedPrompts) {
+  const buildPromptButton = (prompt: PromptItem): HTMLButtonElement => {
     const button = document.createElement('button')
     button.type = 'button'
     button.className = 'prompt-button'
@@ -908,7 +986,39 @@ function renderPromptButtons(): void {
       setView('recording')
       setRecordingButtonsState()
     })
-    promptGridEl.append(button)
+    return button
+  }
+
+  if (selectedScriptId === 's-gojuon') {
+    const groupedRows = buildGojuonPromptRows(sortedPrompts)
+    if (groupedRows) {
+      promptGridEl.classList.add('has-groups')
+      const groupsContainer = document.createElement('div')
+      groupsContainer.className = 'prompt-groups'
+
+      for (const row of groupedRows) {
+        const rowContainer = document.createElement('div')
+        rowContainer.className = 'prompt-row'
+        for (const prompt of row) {
+          if (prompt) {
+            rowContainer.append(buildPromptButton(prompt))
+          } else {
+            const emptyCell = document.createElement('div')
+            emptyCell.className = 'prompt-cell-empty'
+            emptyCell.setAttribute('aria-hidden', 'true')
+            rowContainer.append(emptyCell)
+          }
+        }
+        groupsContainer.append(rowContainer)
+      }
+
+      promptGridEl.append(groupsContainer)
+      return
+    }
+  }
+
+  for (const prompt of sortedPrompts) {
+    promptGridEl.append(buildPromptButton(prompt))
   }
 }
 
