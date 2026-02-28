@@ -55,6 +55,16 @@ h2 {
   margin: 0 auto;
 }
 
+.auth-guide-link-wrap {
+  margin: 0.35rem 0 0;
+  text-align: center;
+}
+
+.auth-guide-link {
+  font-size: 0.9rem;
+  color: #2563eb;
+}
+
 .auth-card {
   margin-top: 1.2rem;
   text-align: center;

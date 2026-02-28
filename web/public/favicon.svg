@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="MoraCollect favicon">
+  <title>MoraCollect favicon</title>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M16 22h4M12 27h8M16 32h4" stroke="#0FAF9A" stroke-width="2.8" />
+    <path d="M44 22h4M44 27h8M44 32h4" stroke="#0FAF9A" stroke-width="2.8" />
+  </g>
+  <rect x="24" y="12" width="16" height="24" rx="8" fill="#0F1F3D" />
+  <rect x="30" y="36" width="4" height="10" rx="2" fill="#0F1F3D" />
+  <rect x="22" y="46" width="20" height="4" rx="2" fill="#0F1F3D" />
+  <circle cx="47" cy="45" r="2.4" fill="#0FAF9A" />
+  <circle cx="52.5" cy="50.5" r="2.4" fill="#0FAF9A" />
+  <circle cx="58" cy="56" r="2.0" fill="#0FAF9A" />
+</svg>

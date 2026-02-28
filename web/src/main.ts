@@ -138,6 +138,14 @@ app.innerHTML = `
   <main class="container">
     <section id="auth-view" class="view auth-view">
       <h1>MoraCollect</h1>
+      <p class="auth-guide-link-wrap">
+        <a
+          class="auth-guide-link"
+          href="https://github.com/watlablog/moracollect-corpus/blob/main/USER_GUIDE.md"
+          target="_blank"
+          rel="noreferrer"
+        >USER_GUIDE.md</a>
+      </p>
       <section class="card auth-card">
         <div class="actions auth-actions">
           <button id="sign-in" type="button">Sign in with Google</button>
