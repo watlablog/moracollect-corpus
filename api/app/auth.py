@@ -40,12 +40,27 @@ def verify_id_token(authorization: str | None = Header(default=None)) -> dict[st
     initialize_firebase_admin()
 
     try:
-        return auth.verify_id_token(token)
+        decoded_token = auth.verify_id_token(token)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication token",
         ) from exc
+
+    firebase_claim = decoded_token.get("firebase")
+    sign_in_provider = ""
+    if isinstance(firebase_claim, dict):
+        provider = firebase_claim.get("sign_in_provider")
+        if isinstance(provider, str):
+            sign_in_provider = provider
+
+    if sign_in_provider == "password" and decoded_token.get("email_verified") is not True:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required",
+        )
+
+    return decoded_token
 
 
 def get_uid_from_token(decoded_token: dict[str, Any]) -> str:

@@ -1,10 +1,13 @@
 import {
+  createUserWithEmailAndPassword,
   GoogleAuthProvider,
   type Auth,
   type Unsubscribe,
   type User,
   getRedirectResult,
   onAuthStateChanged,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
   signOut,
@@ -51,4 +54,30 @@ export async function signInWithGoogle(auth: Auth): Promise<void> {
 
 export async function signOutFromApp(auth: Auth): Promise<void> {
   await signOut(auth)
+}
+
+export async function signInWithEmailPassword(
+  auth: Auth,
+  email: string,
+  password: string,
+): Promise<void> {
+  await signInWithEmailAndPassword(auth, email, password)
+}
+
+export async function createEmailAccount(
+  auth: Auth,
+  email: string,
+  password: string,
+): Promise<User> {
+  const credential = await createUserWithEmailAndPassword(auth, email, password)
+  return credential.user
+}
+
+export async function sendVerificationEmail(user: User): Promise<void> {
+  await sendEmailVerification(user)
+}
+
+export async function refreshUserAndIdToken(user: User): Promise<void> {
+  await user.reload()
+  await user.getIdToken(true)
 }

@@ -4,7 +4,7 @@ MoraCollect is a corpus collection web app.
 This repository currently implements Step 0-9 and Step10-A scope from `DESIGN.md`:
 
 - Step 0: public web page on Firebase Hosting
-- Step 1: Google sign-in/sign-out with Firebase Auth
+- Step 1: Firebase Auth sign-in/sign-out (Google + Email/Password)
 - Step 2: authenticated `/v1/ping` API check
 - Step 3: profile display name save/load via Firestore
 - Step 4: browser recording UI (record/stop/playback + waveform)
@@ -31,7 +31,7 @@ Beginner tutorials (JP):
 ## Tech stack (current)
 
 - Frontend: Vite + Vanilla TypeScript (`web/`)
-- Auth: Firebase Authentication (Google provider)
+- Auth: Firebase Authentication (Google + Email/Password)
 - Hosting: Firebase Hosting
 
 ## 1. Setup
@@ -88,9 +88,10 @@ npm run dev
 
 Open the local URL shown by Vite and verify:
 
-- Not signed in: only `Sign in with Google`
+- Not signed in: `Sign in with Google` and Email/Password form
 - Signed in: account name/email and `Logout`
 - Reload keeps the signed-in session
+- Email/Password users are locked until email verification is completed
 
 ## 3. Deploy to Firebase Hosting
 
@@ -108,8 +109,20 @@ After deploy, open the Hosting URL and verify the same auth behavior.
 In Firebase Console:
 
 1. Authentication > Sign-in method > enable `Google`
-2. Authentication > Settings > add Hosting domain to authorized domains if needed
-3. Create/Register a Web app and use its config in `web/.env.local`
+2. Authentication > Sign-in method > enable `Email/Password`
+3. Authentication > Settings > add Hosting domain to authorized domains if needed
+4. (Recommended) Authentication > Templates > customize verification mail
+5. Create/Register a Web app and use its config in `web/.env.local`
+
+## 4-1. Email verification rule (`password` provider only)
+
+- `password` provider users cannot access `/v1/*` APIs until `emailVerified=true`.
+- Frontend shows a dedicated verification lock screen with:
+  - `確認メール再送`
+  - `確認したので再読み込み`
+  - `ログオフ`
+- API enforces the same rule and returns:
+  - `403 Email verification required` for unverified `password` users.
 
 ## 5. Step2: Authenticated API ping (`/v1/ping`)
 

@@ -9,6 +9,10 @@ import {
 } from './avatar'
 import {
   completeRedirectSignIn,
+  createEmailAccount,
+  refreshUserAndIdToken,
+  sendVerificationEmail,
+  signInWithEmailPassword,
   signInWithGoogle,
   signOutFromApp,
   subscribeAuthState,
@@ -91,7 +95,15 @@ const GOJUON_PROMPT_ROW_PATTERNS = [
   [0, 2, 4], // りゃ行
 ]
 
-type AppView = 'auth' | 'menu' | 'prompt' | 'recording' | 'manage' | 'account' | 'leaderboard'
+type AppView =
+  | 'auth'
+  | 'verify'
+  | 'menu'
+  | 'prompt'
+  | 'recording'
+  | 'manage'
+  | 'account'
+  | 'leaderboard'
 
 function mustGetElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector)
@@ -130,6 +142,27 @@ app.innerHTML = `
         <div class="actions auth-actions">
           <button id="sign-in" type="button">Sign in with Google</button>
         </div>
+        <p class="auth-divider">or</p>
+        <div class="auth-email-form">
+          <label class="auth-field">
+            <span>Email</span>
+            <input id="auth-email" type="email" autocomplete="email" placeholder="name@example.com" />
+          </label>
+          <label class="auth-field">
+            <span>Password</span>
+            <input
+              id="auth-password"
+              type="password"
+              autocomplete="current-password"
+              minlength="6"
+              placeholder="6文字以上"
+            />
+          </label>
+          <div class="actions auth-email-actions">
+            <button id="email-sign-in" type="button">メールでログイン</button>
+            <button id="email-sign-up" type="button" class="ghost">新規登録</button>
+          </div>
+        </div>
         <p id="status" class="status auth-status">Initializing Firebase...</p>
         <p id="error" class="error auth-error" role="alert"></p>
       </section>
@@ -150,6 +183,19 @@ app.innerHTML = `
       </header>
       <p id="shell-error" class="error" role="alert"></p>
 
+      <section id="verify-view" class="view card" hidden>
+        <h2 class="view-title">メール確認が必要です</h2>
+        <p id="verify-email" class="verify-email">確認先: -</p>
+        <p id="verify-status" class="verify-status">
+          メール内リンクを開いて確認を完了してください。
+        </p>
+        <div class="verify-actions">
+          <button id="verify-resend" type="button">確認メール再送</button>
+          <button id="verify-refresh" type="button">確認したので再読み込み</button>
+          <button id="verify-sign-out" type="button" class="ghost">ログオフ</button>
+        </div>
+      </section>
+
       <section id="menu-view" class="view card">
         <h2 class="view-title">メニュー</h2>
 
@@ -162,7 +208,7 @@ app.innerHTML = `
         <section class="menu-block">
           <p class="menu-block-heading">管理</p>
           <div class="menu-management-actions">
-            <button id="open-manage" type="button">保存音声の管理</button>
+            <button id="open-manage" type="button">My Record</button>
             <button id="open-account" type="button">アカウント</button>
             <button id="open-leaderboard" type="button">ランキング</button>
           </div>
@@ -181,7 +227,6 @@ app.innerHTML = `
         <p id="selected-genre" class="selected-genre">選択ジャンル: なし</p>
         <p class="prompt-note">rec: 録音されたファイル数 / spk: 発話者数</p>
         <p id="prompt-status" class="prompt-status">Prompts: waiting for genre</p>
-        <p id="selected-prompt" class="selected-prompt">Selected prompt: none</p>
         <div class="prompt-grid-scroll">
           <div id="prompt-grid" class="prompt-grid" role="listbox" aria-label="Prompt selection"></div>
         </div>
@@ -222,7 +267,7 @@ app.innerHTML = `
           <button id="manage-back" type="button" class="ghost">戻る</button>
         </div>
 
-        <h2 class="view-title">保存音声の管理</h2>
+        <h2 class="view-title">My Record</h2>
         <p id="my-records-status" class="my-records-status">My records: waiting for sign-in</p>
         <div class="my-records-pagination">
           <button id="my-records-prev" type="button" class="ghost">戻る</button>
@@ -305,11 +350,19 @@ app.innerHTML = `
         </div>
       </div>
     </div>
+
+    <div id="upload-success-fx" class="upload-success-fx" aria-hidden="true">
+      <div class="upload-success-fx-content">
+        <span class="upload-success-fx-ring"></span>
+        <span id="upload-success-fx-stamp" class="upload-success-fx-stamp">👍</span>
+      </div>
+    </div>
   </main>
 `
 
 const authViewEl = mustGetElement<HTMLElement>('#auth-view')
 const appShellEl = mustGetElement<HTMLElement>('#app-shell')
+const verifyViewEl = mustGetElement<HTMLElement>('#verify-view')
 const menuViewEl = mustGetElement<HTMLElement>('#menu-view')
 const promptViewEl = mustGetElement<HTMLElement>('#prompt-view')
 const recordingViewEl = mustGetElement<HTMLElement>('#recording-view')
@@ -324,7 +377,16 @@ const userInfoEl = mustGetElement<HTMLElement>('#user-info')
 const userAvatarImageEl = mustGetElement<HTMLImageElement>('#user-avatar-image')
 const userAvatarFallbackEl = mustGetElement<HTMLElement>('#user-avatar-fallback')
 const signInButton = mustGetElement<HTMLButtonElement>('#sign-in')
+const authEmailInput = mustGetElement<HTMLInputElement>('#auth-email')
+const authPasswordInput = mustGetElement<HTMLInputElement>('#auth-password')
+const emailSignInButton = mustGetElement<HTMLButtonElement>('#email-sign-in')
+const emailSignUpButton = mustGetElement<HTMLButtonElement>('#email-sign-up')
 const logoutButton = mustGetElement<HTMLButtonElement>('#logout')
+const verifyEmailEl = mustGetElement<HTMLElement>('#verify-email')
+const verifyStatusEl = mustGetElement<HTMLElement>('#verify-status')
+const verifyResendButton = mustGetElement<HTMLButtonElement>('#verify-resend')
+const verifyRefreshButton = mustGetElement<HTMLButtonElement>('#verify-refresh')
+const verifySignOutButton = mustGetElement<HTMLButtonElement>('#verify-sign-out')
 
 const displayNameInput = mustGetElement<HTMLInputElement>('#display-name')
 const saveProfileButton = mustGetElement<HTMLButtonElement>('#save-profile')
@@ -341,7 +403,6 @@ const refreshScriptPromptsButton =
   mustGetElement<HTMLButtonElement>('#refresh-script-prompts')
 const selectedGenreEl = mustGetElement<HTMLElement>('#selected-genre')
 const promptStatusEl = mustGetElement<HTMLElement>('#prompt-status')
-const selectedPromptEl = mustGetElement<HTMLElement>('#selected-prompt')
 const promptGridEl = mustGetElement<HTMLDivElement>('#prompt-grid')
 
 const recordingBackButton = mustGetElement<HTMLButtonElement>('#recording-back')
@@ -391,6 +452,8 @@ const apiResultEl = mustGetElement<HTMLElement>('#api-result')
 const logoutModalEl = mustGetElement<HTMLElement>('#logout-modal')
 const logoutConfirmButton = mustGetElement<HTMLButtonElement>('#logout-confirm')
 const logoutCancelButton = mustGetElement<HTMLButtonElement>('#logout-cancel')
+const uploadSuccessFxEl = mustGetElement<HTMLElement>('#upload-success-fx')
+const uploadSuccessFxStampEl = mustGetElement<HTMLElement>('#upload-success-fx-stamp')
 
 type RegisterDraft = {
   recordId: string
@@ -442,6 +505,9 @@ let availablePrompts: PromptItem[] = []
 let selectedScriptId: string | null = null
 let selectedPromptId: string | null = null
 let logoutInProgress = false
+let authActionInProgress = false
+let verifyActionInProgress = false
+let verificationLocked = false
 let currentProfileDisplayName = ''
 let currentAvatarPath: string | null = null
 let currentAvatarUrl: string | null = null
@@ -452,6 +518,7 @@ let avatarDragLastY = 0
 let avatarSaveInProgress = false
 let avatarDeleteInProgress = false
 let avatarUrlRetryInProgress = false
+let uploadSuccessFxTimer: number | null = null
 
 function setView(nextView: AppView): void {
   const previousView = currentView
@@ -465,6 +532,7 @@ function setView(nextView: AppView): void {
   authViewEl.hidden = signedIn
   appShellEl.hidden = !signedIn
 
+  verifyViewEl.hidden = currentView !== 'verify'
   menuViewEl.hidden = currentView !== 'menu'
   promptViewEl.hidden = currentView !== 'prompt'
   recordingViewEl.hidden = currentView !== 'recording'
@@ -479,13 +547,27 @@ function setView(nextView: AppView): void {
   setRecordingButtonsState()
 }
 
+function clearUploadSuccessEffect(): void {
+  if (uploadSuccessFxTimer !== null) {
+    window.clearTimeout(uploadSuccessFxTimer)
+    uploadSuccessFxTimer = null
+  }
+  uploadSuccessFxEl.classList.remove('is-active')
+}
+
+function playUploadSuccessEffect(symbol = '👍'): void {
+  clearUploadSuccessEffect()
+  uploadSuccessFxStampEl.textContent = symbol
+  void uploadSuccessFxEl.offsetWidth
+  uploadSuccessFxEl.classList.add('is-active')
+  uploadSuccessFxTimer = window.setTimeout(() => {
+    uploadSuccessFxEl.classList.remove('is-active')
+    uploadSuccessFxTimer = null
+  }, 1600)
+}
+
 function resolveCurrentUserName(user: User): string {
-  return (
-    currentProfileDisplayName.trim() ||
-    user.displayName ||
-    user.email ||
-    user.uid
-  )
+  return currentProfileDisplayName.trim() || user.displayName || user.uid
 }
 
 function getAvatarFallbackChar(value: string): string {
@@ -536,6 +618,24 @@ function renderUser(user: User | null): void {
 function getAuthErrorMessage(error: unknown): string {
   if (typeof error === 'object' && error !== null && 'code' in error) {
     const code = String((error as { code?: unknown }).code)
+    if (code.includes('invalid-email')) {
+      return 'メールアドレスの形式が正しくありません。'
+    }
+    if (code.includes('user-not-found')) {
+      return 'このメールアドレスのアカウントは見つかりません。'
+    }
+    if (code.includes('wrong-password') || code.includes('invalid-credential')) {
+      return 'メールアドレスまたはパスワードが正しくありません。'
+    }
+    if (code.includes('email-already-in-use')) {
+      return 'このメールアドレスは既に登録されています。'
+    }
+    if (code.includes('weak-password')) {
+      return 'パスワードは6文字以上で設定してください。'
+    }
+    if (code.includes('too-many-requests')) {
+      return '試行回数が多すぎます。しばらくしてから再試行してください。'
+    }
     if (code.includes('popup-blocked')) {
       return 'Popup was blocked by your browser. Please allow popups and try again.'
     }
@@ -552,6 +652,66 @@ function getAuthErrorMessage(error: unknown): string {
   }
 
   return 'Authentication failed due to an unexpected error.'
+}
+
+function setAuthControlsDisabled(disabled: boolean): void {
+  signInButton.disabled = disabled
+  authEmailInput.disabled = disabled
+  authPasswordInput.disabled = disabled
+  emailSignInButton.disabled = disabled
+  emailSignUpButton.disabled = disabled
+}
+
+function setVerifyButtonsState(): void {
+  const disabled = !currentUser || !verificationLocked || verifyActionInProgress
+  verifyResendButton.disabled = disabled
+  verifyRefreshButton.disabled = disabled
+  verifySignOutButton.disabled = !currentUser || logoutInProgress
+}
+
+function getTrimmedAuthInputs(): { email: string; password: string } {
+  const email = authEmailInput.value.trim()
+  const password = authPasswordInput.value
+  if (!email) {
+    throw new Error('メールアドレスを入力してください。')
+  }
+  if (!email.includes('@')) {
+    throw new Error('メールアドレスの形式が正しくありません。')
+  }
+  if (!password) {
+    throw new Error('パスワードを入力してください。')
+  }
+  if (password.length < 6) {
+    throw new Error('パスワードは6文字以上で入力してください。')
+  }
+  return { email, password }
+}
+
+async function isPasswordProviderUnverified(user: User): Promise<boolean> {
+  let signInProvider = ''
+  try {
+    const tokenResult = await user.getIdTokenResult(true)
+    const firebaseClaim = tokenResult.claims.firebase as
+      | { sign_in_provider?: unknown }
+      | undefined
+    const rawProvider = firebaseClaim?.sign_in_provider
+    if (typeof rawProvider === 'string') {
+      signInProvider = rawProvider
+    }
+  } catch {
+    // Ignore token claim parsing errors and fallback to providerData.
+  }
+
+  if (!signInProvider) {
+    const providerFromUser = user.providerData.find(
+      (provider) => provider.providerId === 'password',
+    )
+    if (providerFromUser) {
+      signInProvider = 'password'
+    }
+  }
+
+  return signInProvider === 'password' && user.emailVerified !== true
 }
 
 function isMissingInitialStateError(error: unknown): boolean {
@@ -893,11 +1053,9 @@ function updateSelectedGenreLabel(): void {
 function updateSelectedPromptLabel(): void {
   const selectedPrompt = findSelectedPrompt()
   if (!selectedPrompt) {
-    selectedPromptEl.textContent = 'Selected prompt: none'
     recordingSelectedPromptEl.textContent = '選択音声: なし'
     return
   }
-  selectedPromptEl.textContent = `Selected prompt: ${selectedPrompt.text} (${selectedPrompt.total_records} rec / ${selectedPrompt.unique_speakers} spk)`
   recordingSelectedPromptEl.textContent = `選択音声: ${selectedPrompt.text} (${selectedPrompt.total_records} rec / ${selectedPrompt.unique_speakers} spk)`
 }
 
@@ -1574,6 +1732,31 @@ function setRecordingButtonsState(): void {
     updateUploadButtonState()
     renderMyRecords(myRecordsItems)
     updateMyRecordsPaginationControls()
+    setVerifyButtonsState()
+    return
+  }
+
+  if (verificationLocked) {
+    updateGenreButtonsDisabled(true)
+    updatePromptButtonsDisabled(true)
+    refreshScriptPromptsButton.disabled = true
+    openManageButton.disabled = true
+    openAccountButton.disabled = true
+    openLeaderboardButton.disabled = true
+    promptBackButton.disabled = true
+    recordingBackButton.disabled = true
+    manageBackButton.disabled = true
+    leaderboardBackButton.disabled = true
+    leaderboardRefreshButton.disabled = true
+    accountBackButton.disabled = true
+    recordingStartButton.disabled = true
+    recordingStopButton.disabled = true
+    uploadRecordingButton.disabled = true
+    setProfileControlsDisabled(true)
+    setAvatarControlsDisabled(true)
+    renderMyRecords(myRecordsItems)
+    updateMyRecordsPaginationControls()
+    setVerifyButtonsState()
     return
   }
 
@@ -1599,6 +1782,7 @@ function setRecordingButtonsState(): void {
   updateUploadButtonState()
   renderMyRecords(myRecordsItems)
   updateMyRecordsPaginationControls()
+  setVerifyButtonsState()
 }
 
 function isRecorderError(error: unknown): error is RecorderError {
@@ -1666,6 +1850,7 @@ function setRecordingIdleState(): void {
 }
 
 async function setRecordingSignedOutState(): Promise<void> {
+  clearUploadSuccessEffect()
   stopRecordingCountdown()
   if (recorder.getState() === 'recording') {
     try {
@@ -1698,6 +1883,34 @@ function setPromptSignedOutState(): void {
   updateSelectedPromptLabel()
   genreStatusEl.textContent = 'ジャンル: サインイン待ち'
   promptStatusEl.textContent = 'Prompts: waiting for sign-in'
+}
+
+async function routeSignedInUserByVerification(user: User): Promise<void> {
+  const requiresVerification = await isPasswordProviderUnverified(user)
+  if (!currentUser || currentUser.uid !== user.uid) {
+    return
+  }
+
+  if (requiresVerification) {
+    verificationLocked = true
+    verifyEmailEl.textContent = `確認先: ${user.email ?? '-'}`
+    verifyStatusEl.textContent =
+      'メール確認が必要です。確認メール内のリンクを開いた後、「確認したので再読み込み」を押してください。'
+    setView('verify')
+    setRecordingButtonsState()
+    return
+  }
+
+  verificationLocked = false
+  verifyEmailEl.textContent = '確認先: -'
+  verifyStatusEl.textContent = 'メール確認済みです。'
+  setView('menu')
+  setRecordingIdleState()
+  void loadGenres(user)
+  void loadProfile(user)
+  void runPing(user)
+  void loadMyRecords(user, { reset: true })
+  setRecordingButtonsState()
 }
 
 async function runPing(user: User): Promise<void> {
@@ -2298,6 +2511,7 @@ async function handleUploadRecording(): Promise<void> {
       uploadPlan.required_headers,
     )
     uploadStatusEl.textContent = 'Upload status: uploaded'
+    playUploadSuccessEffect('👍')
     uploadPathEl.textContent = `Saved to: ${uploadPlan.raw_path}`
     uploadCompletedForCurrentRecording = true
 
@@ -2349,6 +2563,115 @@ async function handleRefreshScriptPromptStats(): Promise<void> {
   }
 }
 
+async function handleEmailSignIn(): Promise<void> {
+  if (!authForActions || authActionInProgress) {
+    return
+  }
+
+  let credentials: { email: string; password: string }
+  try {
+    credentials = getTrimmedAuthInputs()
+  } catch (error) {
+    errorEl.textContent = (error as Error).message
+    return
+  }
+
+  authActionInProgress = true
+  errorEl.textContent = ''
+  shellErrorEl.textContent = ''
+  statusEl.textContent = 'Signing in with email...'
+  setAuthControlsDisabled(true)
+
+  try {
+    await signInWithEmailPassword(
+      authForActions,
+      credentials.email,
+      credentials.password,
+    )
+  } catch (error) {
+    errorEl.textContent = getAuthErrorMessage(error)
+  } finally {
+    authActionInProgress = false
+    setAuthControlsDisabled(false)
+  }
+}
+
+async function handleEmailSignUp(): Promise<void> {
+  if (!authForActions || authActionInProgress) {
+    return
+  }
+
+  let credentials: { email: string; password: string }
+  try {
+    credentials = getTrimmedAuthInputs()
+  } catch (error) {
+    errorEl.textContent = (error as Error).message
+    return
+  }
+
+  authActionInProgress = true
+  errorEl.textContent = ''
+  shellErrorEl.textContent = ''
+  statusEl.textContent = 'Creating account...'
+  setAuthControlsDisabled(true)
+
+  try {
+    const user = await createEmailAccount(
+      authForActions,
+      credentials.email,
+      credentials.password,
+    )
+    await sendVerificationEmail(user)
+    statusEl.textContent = 'Verification email sent.'
+  } catch (error) {
+    errorEl.textContent = getAuthErrorMessage(error)
+  } finally {
+    authActionInProgress = false
+    setAuthControlsDisabled(false)
+  }
+}
+
+async function handleResendVerificationEmail(): Promise<void> {
+  if (!currentUser || verifyActionInProgress) {
+    return
+  }
+
+  verifyActionInProgress = true
+  verifyStatusEl.textContent = '確認メールを再送中...'
+  setVerifyButtonsState()
+
+  try {
+    await sendVerificationEmail(currentUser)
+    verifyStatusEl.textContent =
+      '確認メールを再送しました。メール内リンクを開いてから再読み込みしてください。'
+  } catch (error) {
+    verifyStatusEl.textContent = `確認メール再送に失敗しました (${getAuthErrorMessage(error)})`
+  } finally {
+    verifyActionInProgress = false
+    setVerifyButtonsState()
+  }
+}
+
+async function handleRefreshVerificationState(): Promise<void> {
+  if (!currentUser || verifyActionInProgress) {
+    return
+  }
+
+  verifyActionInProgress = true
+  verifyStatusEl.textContent = '確認状態を再チェック中...'
+  setVerifyButtonsState()
+
+  try {
+    await refreshUserAndIdToken(currentUser)
+    await routeSignedInUserByVerification(currentUser)
+  } catch (error) {
+    verifyStatusEl.textContent = `確認状態の再取得に失敗しました (${getApiErrorMessage(error)})`
+  } finally {
+    verifyActionInProgress = false
+    setVerifyButtonsState()
+  }
+}
+
 function openLogoutModal(): void {
   if (!currentUser || logoutInProgress) {
     return
@@ -2372,6 +2695,7 @@ async function confirmLogout(): Promise<void> {
   logoutButton.disabled = true
   logoutConfirmButton.disabled = true
   logoutCancelButton.disabled = true
+  setVerifyButtonsState()
   shellErrorEl.textContent = ''
 
   try {
@@ -2385,6 +2709,7 @@ async function confirmLogout(): Promise<void> {
     logoutButton.disabled = false
     logoutConfirmButton.disabled = false
     logoutCancelButton.disabled = false
+    setVerifyButtonsState()
   }
 }
 
@@ -2403,14 +2728,16 @@ try {
   statusEl.textContent = 'Firebase is not configured.'
   errorEl.textContent = (error as Error).message
   console.error(error)
-  signInButton.disabled = true
+  setAuthControlsDisabled(true)
   logoutButton.disabled = true
+  verifyResendButton.disabled = true
+  verifyRefreshButton.disabled = true
+  verifySignOutButton.disabled = true
   setProfileControlsDisabled(true)
   setAvatarControlsDisabled(true)
   genreStatusEl.textContent = 'ジャンル: disabled (Firebase init failed)'
   promptStatusEl.textContent = 'Prompts: disabled (Firebase init failed)'
   selectedGenreEl.textContent = '選択ジャンル: なし'
-  selectedPromptEl.textContent = 'Selected prompt: none'
   recordingSelectedPromptEl.textContent = '選択音声: なし'
   clearManagePlaybackState()
   clearRecordingWaveformView('Waveform: disabled')
@@ -2456,20 +2783,20 @@ if (auth) {
       errorEl.textContent = ''
       shellErrorEl.textContent = ''
       resetLeaderboardState('ランキング: 未取得')
-      setView('menu')
-      setRecordingIdleState()
-      void loadGenres(user)
-      void loadProfile(user)
-      void runPing(user)
-      void loadMyRecords(user, { reset: true })
+      void routeSignedInUserByVerification(user)
     } else {
       deletingRecordIds.clear()
       loadingRecordIds.clear()
+      authActionInProgress = false
+      verifyActionInProgress = false
+      verificationLocked = false
       avatarSaveInProgress = false
       avatarDeleteInProgress = false
       currentProfileDisplayName = ''
       currentAvatarPath = null
       currentAvatarUrl = null
+      authEmailInput.value = ''
+      authPasswordInput.value = ''
       avatarFileInputEl.value = ''
       resetAvatarEditor('Avatar status: waiting for sign-in')
       setProfileControlsDisabled(true)
@@ -2486,14 +2813,23 @@ if (auth) {
       resetLeaderboardState('ランキング: waiting for sign-in')
       void setRecordingSignedOutState()
       closeLogoutModal()
+      verifyEmailEl.textContent = '確認先: -'
+      verifyStatusEl.textContent =
+        'メール内リンクを開いて確認を完了してください。'
       setView('auth')
+      setAuthControlsDisabled(false)
+      setVerifyButtonsState()
     }
   })
 
   signInButton.addEventListener('click', async () => {
+    if (authActionInProgress) {
+      return
+    }
     errorEl.textContent = ''
     shellErrorEl.textContent = ''
-    signInButton.disabled = true
+    authActionInProgress = true
+    setAuthControlsDisabled(true)
 
     try {
       await signInWithGoogle(auth)
@@ -2501,8 +2837,17 @@ if (auth) {
       errorEl.textContent = getAuthErrorMessage(error)
       console.error(error)
     } finally {
-      signInButton.disabled = false
+      authActionInProgress = false
+      setAuthControlsDisabled(false)
     }
+  })
+
+  emailSignInButton.addEventListener('click', async () => {
+    await handleEmailSignIn()
+  })
+
+  emailSignUpButton.addEventListener('click', async () => {
+    await handleEmailSignUp()
   })
 
   logoutButton.addEventListener('click', () => {
@@ -2521,6 +2866,18 @@ if (auth) {
     if (event.target === logoutModalEl) {
       closeLogoutModal()
     }
+  })
+
+  verifyResendButton.addEventListener('click', async () => {
+    await handleResendVerificationEmail()
+  })
+
+  verifyRefreshButton.addEventListener('click', async () => {
+    await handleRefreshVerificationState()
+  })
+
+  verifySignOutButton.addEventListener('click', () => {
+    openLogoutModal()
   })
 
   saveProfileButton.addEventListener('click', async () => {
