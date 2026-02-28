@@ -177,7 +177,16 @@ app.innerHTML = `
               <img id="user-avatar-image" class="user-avatar-image" alt="User avatar" hidden />
               <span id="user-avatar-fallback" class="user-avatar-fallback">?</span>
             </div>
-            <p id="user-info" class="user-info"></p>
+            <div class="user-meta">
+              <p id="user-info" class="user-info"></p>
+              <a
+                id="user-guide-link"
+                class="user-guide-link"
+                href="https://github.com/watlablog/moracollect-corpus/blob/main/USER_GUIDE.md"
+                target="_blank"
+                rel="noreferrer"
+              >USER_GUIDE.md</a>
+            </div>
           </div>
         </div>
       </header>

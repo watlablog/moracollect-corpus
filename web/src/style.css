@@ -83,6 +83,10 @@ h2 {
   margin-top: 0.35rem;
 }
 
+.user-meta {
+  min-width: 0;
+}
+
 .user-avatar {
   width: 42px;
   height: 42px;
@@ -115,6 +119,14 @@ h2 {
   word-break: break-all;
   font-size: 1.08rem;
   font-weight: 700;
+}
+
+.user-guide-link {
+  display: inline-block;
+  margin-top: 0.15rem;
+  font-size: 0.78rem;
+  color: #2563eb;
+  word-break: break-all;
 }
 
 .card {
