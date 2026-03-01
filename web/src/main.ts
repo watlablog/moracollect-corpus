@@ -2168,12 +2168,6 @@ async function runRegisterForDraft(user: User, draft: RegisterDraft): Promise<vo
   resetRegisterState('Register status: registering ...')
 
   try {
-    const hadPromptRecordBefore = myRecordsItems.some(
-      (item) => item.prompt_id === draft.promptId,
-    )
-    const hadScriptRecordBefore = myRecordsItems.some(
-      (item) => item.script_id === draft.scriptId,
-    )
     const idToken = await user.getIdToken()
     const response = await registerRecord(idToken, {
       record_id: draft.recordId,
@@ -2196,12 +2190,12 @@ async function runRegisterForDraft(user: User, draft: RegisterDraft): Promise<vo
       applyLocalPromptStatsDelta(
         draft.promptId,
         1,
-        hadPromptRecordBefore ? 0 : 1,
+        response.prompt_speaker_added ? 1 : 0,
       )
       applyLocalScriptStatsDelta(
         draft.scriptId,
         1,
-        hadScriptRecordBefore ? 0 : 1,
+        response.script_speaker_added ? 1 : 0,
       )
       refreshLocalStatsViews()
     }

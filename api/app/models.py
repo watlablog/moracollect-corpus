@@ -102,6 +102,8 @@ class RegisterResponse(BaseModel):
     record_id: str
     status: str
     already_registered: bool
+    prompt_speaker_added: bool = False
+    script_speaker_added: bool = False
 
 
 class MyRecordItem(BaseModel):

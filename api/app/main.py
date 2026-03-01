@@ -572,7 +572,7 @@ def create_record_and_update_stats(
     uid: str,
     script_snapshot_base: dict[str, Any],
     prompt_snapshot_base: dict[str, Any],
-) -> None:
+) -> tuple[bool, bool]:
     prompt_speaker_snapshot = prompt_speaker_ref.get(transaction=transaction)
     script_speaker_snapshot = script_speaker_ref.get(transaction=transaction)
     scripts_overview_snapshot = scripts_overview_snapshot_ref.get(transaction=transaction)
@@ -670,7 +670,10 @@ def create_record_and_update_stats(
         merge=True,
     )
 
-    if not prompt_speaker_snapshot.exists:
+    prompt_speaker_added = not prompt_speaker_snapshot.exists
+    script_speaker_added = not script_speaker_snapshot.exists
+
+    if prompt_speaker_added:
         transaction.set(
             prompt_speaker_ref,
             {
@@ -688,7 +691,7 @@ def create_record_and_update_stats(
             merge=True,
         )
 
-    if not script_speaker_snapshot.exists:
+    if script_speaker_added:
         transaction.set(
             script_speaker_ref,
             {
@@ -705,6 +708,8 @@ def create_record_and_update_stats(
             },
             merge=True,
         )
+
+    return (prompt_speaker_added, script_speaker_added)
 
 
 @admin_firestore.transactional
@@ -1462,6 +1467,8 @@ def post_register(
                 record_id=record_id,
                 status=existing_status,
                 already_registered=True,
+                prompt_speaker_added=False,
+                script_speaker_added=False,
             )
 
         record_doc = {
@@ -1491,7 +1498,7 @@ def post_register(
             "created_at": admin_firestore.SERVER_TIMESTAMP,
         }
         transaction = get_firestore_client().transaction()
-        create_record_and_update_stats(
+        prompt_speaker_added, script_speaker_added = create_record_and_update_stats(
             transaction,
             record_ref=record_ref,
             user_record_ref=user_record_ref,
@@ -1533,6 +1540,8 @@ def post_register(
         record_id=record_id,
         status="uploaded",
         already_registered=False,
+        prompt_speaker_added=prompt_speaker_added,
+        script_speaker_added=script_speaker_added,
     )
 
 

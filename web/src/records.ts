@@ -12,6 +12,8 @@ export type RegisterRecordResponse = {
   record_id: string
   status: string
   already_registered: boolean
+  prompt_speaker_added: boolean
+  script_speaker_added: boolean
 }
 
 export type MyRecordItem = {
