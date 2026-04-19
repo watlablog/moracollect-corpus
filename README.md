@@ -453,15 +453,16 @@ pip install -r requirements.txt       # first time only
 # if ADC is not configured:
 # gcloud auth application-default login
 python3 scripts/seed_step7_data.py
+python3 scripts/build_stats_snapshots.py
 deactivate
 ```
 
 ### 10-4. Web behavior
 
 - Signed-in user selects script from dropdown
-- In current default operation:
-  - script = `50音` (`s-gojuon`) only
-  - prompts = 104 entries in fixed gojuon order
+- Current seed includes:
+  - `50音` (`s-gojuon`) with 104 prompts in fixed gojuon order
+  - `5種類の"ん"` (`s-five-kinds-of-n`) with 5 word prompts
 - Prompt buttons are shown in grid (fixed gojuon order by `order`)
 - User chooses any prompt and records/uploads
 - Upload button is enabled only when:
@@ -470,8 +471,8 @@ deactivate
   - recording exists
 - Register success refreshes prompt counts immediately
 - Current default seed:
-  - script: `50音` (`s-gojuon`)
-  - prompts: 104 items (46 clear + 25 voiced/semi-voiced + 33 contracted sounds)
+  - `50音`: 104 items (46 clear + 25 voiced/semi-voiced + 33 contracted sounds)
+  - `5種類の"ん"`: `さんま`, `あんな`, `はんが`, `しんよう`, `かばん`
 
 ### 10-5. Deploy order
 
@@ -511,7 +512,7 @@ firebase deploy --only hosting
   - fix: make prompt `script_id` match existing script (current: `s-gojuon`)
 - Old scripts/prompts still shown in UI
   - cause: legacy Firestore seed data remains
-  - fix: rerun `seed_step7_data.py` (it prunes missing `scripts/prompts`)
+  - fix: rerun `seed_step7_data.py`, then `build_stats_snapshots.py`
 
 ## 11. Step8: Delete own records (hard delete)
 
@@ -621,7 +622,7 @@ The web app/API behavior is unchanged.
 - Downloads each raw object from Storage
 - Converts with ffmpeg to `16kHz mono s16 wav`
 - Saves files as:
-  - `exports/wav/<phoneme_slug>/<phoneme_slug>__<uid>__<record_id>.wav`
+  - `exports/wav/<export_group_slug>/<export_group_slug>__<prompt_id>__<uid>__<record_id>.wav`
 - Writes manifest CSV:
   - `exports/manifests/export_<timestamp>.csv`
 
@@ -634,6 +635,15 @@ Mapping CSV columns:
 
 - required: `prompt_id`, `prompt_text`, `phoneme_seq`
 - optional: `phoneme_slug` (auto-generated from `phoneme_seq` when omitted)
+- optional: `export_group_slug` (falls back to `phoneme_slug` when omitted)
+
+`5種類の"ん"` uses `export_group_slug` to group data by the target nasal class:
+
+- `N1`: `[m]` class (`さんま`)
+- `N2`: `[n]` class (`あんな`)
+- `N3`: `[ŋ]` class (`はんが`)
+- `N4`: `[ɲ]` class (`しんよう`)
+- `N5`: `[ɴ]` class (`かばん` word-final)
 
 ### 13-3. Prepare environment
 

@@ -61,6 +61,9 @@ const AVATAR_CROP_CANVAS_SIZE = 320
 const AVATAR_EXPORT_SIZE = 512
 const AVATAR_MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024
 const AVATAR_MIME_TYPE = 'image/webp'
+const FIVE_KINDS_OF_N_SCRIPT_ID = 's-five-kinds-of-n'
+const FIVE_KINDS_OF_N_GUIDANCE =
+  'このジャンルでは、各語を自然な速さで1回読んでください。「ん」だけを強調せず、単語全体を自然に発話します。'
 const GOJUON_PROMPT_GROUP_SIZES = [
   5, 5, 5, 5, 5, 5, 5, 3, 5, 2, 1, 5, 5, 5, 5, 5, 3, 3, 3, 3, 3, 3, 3, 3, 3,
   3, 3,
@@ -243,6 +246,7 @@ app.innerHTML = `
         <h2 class="view-title">収録する音声</h2>
         <p id="selected-genre" class="selected-genre">選択ジャンル: なし</p>
         <p class="prompt-note">rec: 録音されたファイル数 / spk: 発話者数</p>
+        <p id="prompt-script-guidance" class="script-guidance" hidden></p>
         <p id="prompt-status" class="prompt-status">Prompts: waiting for genre</p>
         <div class="prompt-grid-scroll">
           <div id="prompt-grid" class="prompt-grid" role="listbox" aria-label="Prompt selection"></div>
@@ -259,6 +263,7 @@ app.innerHTML = `
 
         <h2 class="view-title">音声録音</h2>
         <p id="recording-selected-prompt" class="recording-selected-prompt">選択音声: なし</p>
+        <p id="recording-script-guidance" class="script-guidance" hidden></p>
         <p id="recording-status" class="recording-status">Recording status: waiting for sign-in</p>
         <p id="recording-timer" class="recording-timer">Time left: ${MAX_RECORDING_SECONDS}s</p>
 
@@ -419,11 +424,14 @@ const promptBackButton = mustGetElement<HTMLButtonElement>('#prompt-back')
 const refreshScriptPromptsButton =
   mustGetElement<HTMLButtonElement>('#refresh-script-prompts')
 const selectedGenreEl = mustGetElement<HTMLElement>('#selected-genre')
+const promptScriptGuidanceEl = mustGetElement<HTMLElement>('#prompt-script-guidance')
 const promptStatusEl = mustGetElement<HTMLElement>('#prompt-status')
 const promptGridEl = mustGetElement<HTMLDivElement>('#prompt-grid')
 
 const recordingBackButton = mustGetElement<HTMLButtonElement>('#recording-back')
 const recordingSelectedPromptEl = mustGetElement<HTMLElement>('#recording-selected-prompt')
+const recordingScriptGuidanceEl =
+  mustGetElement<HTMLElement>('#recording-script-guidance')
 const recordingStatusEl = mustGetElement<HTMLElement>('#recording-status')
 const recordingTimerEl = mustGetElement<HTMLElement>('#recording-timer')
 const recordingStartButton =
@@ -1062,9 +1070,11 @@ function updateSelectedGenreLabel(): void {
   const selectedScript = findSelectedScript()
   if (!selectedScript) {
     selectedGenreEl.textContent = '選択ジャンル: なし'
+    updateScriptGuidance(null)
     return
   }
   selectedGenreEl.textContent = `選択ジャンル: ${selectedScript.title} (${selectedScript.total_records} rec / ${selectedScript.unique_speakers} spk)`
+  updateScriptGuidance(selectedScript.script_id)
 }
 
 function updateSelectedPromptLabel(): void {
@@ -1074,6 +1084,21 @@ function updateSelectedPromptLabel(): void {
     return
   }
   recordingSelectedPromptEl.textContent = `選択音声: ${selectedPrompt.text} (${selectedPrompt.total_records} rec / ${selectedPrompt.unique_speakers} spk)`
+}
+
+function updateScriptGuidance(scriptId: string | null): void {
+  const guidance =
+    scriptId === FIVE_KINDS_OF_N_SCRIPT_ID ? FIVE_KINDS_OF_N_GUIDANCE : null
+
+  for (const element of [promptScriptGuidanceEl, recordingScriptGuidanceEl]) {
+    if (guidance) {
+      element.textContent = guidance
+      element.hidden = false
+    } else {
+      element.textContent = ''
+      element.hidden = true
+    }
+  }
 }
 
 function renderGenreButtons(): void {

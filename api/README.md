@@ -35,6 +35,7 @@ curl -i http://localhost:8080/v1/leaderboard
 ```bash
 cd api
 python3 scripts/seed_step7_data.py
+python3 scripts/build_stats_snapshots.py
 ```
 
 ## Backfill contribution_count (Step9)
@@ -59,6 +60,9 @@ python3 scripts/export_wav_dataset.py \
   --mapping-csv ../infra/mappings/prompt_phonemes.csv \
   --out-dir ../exports
 ```
+
+`prompt_phonemes.csv` can optionally set `export_group_slug`.
+For `5種類の"ん"`, use `N1` to `N5` so exports land under `exports/wav/N1` ... `exports/wav/N5`.
 
 ## Deploy to Cloud Run
 

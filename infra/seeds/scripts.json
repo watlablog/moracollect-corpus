@@ -5,5 +5,12 @@
     "description": "50音の収録セット。",
     "order": 10,
     "is_active": true
+  },
+  {
+    "script_id": "s-five-kinds-of-n",
+    "title": "5種類の\"ん\"",
+    "description": "「ん」の5種を集める単語セット。各語を自然に1回読む。",
+    "order": 20,
+    "is_active": true
   }
 ]

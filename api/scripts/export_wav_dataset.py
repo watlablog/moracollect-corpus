@@ -30,6 +30,7 @@ MANIFEST_HEADERS = [
     "prompt_text",
     "phoneme_seq",
     "phoneme_slug",
+    "export_group_slug",
     "raw_path",
     "wav_path_local",
     "status",
@@ -44,6 +45,7 @@ class PromptPhonemeMapping:
     prompt_text: str
     phoneme_seq: str
     phoneme_slug: str
+    export_group_slug: str
 
 
 def as_optional_str(value: Any) -> str | None:
@@ -92,6 +94,16 @@ def normalize_slug(value: str, fallback: str) -> str:
     return fallback.strip().lower().replace("-", "_")
 
 
+def normalize_export_group(value: str, fallback: str) -> str:
+    group = value.strip() or fallback.strip()
+    group = group.replace(" ", "_")
+    group = re.sub(r"[^A-Za-z0-9_-]+", "_", group)
+    group = re.sub(r"_+", "_", group).strip("_")
+    if group:
+        return group
+    return fallback.strip().replace(" ", "_").replace("-", "_")
+
+
 def load_prompt_phoneme_map(csv_path: Path) -> dict[str, PromptPhonemeMapping]:
     required_columns = {"prompt_id", "prompt_text", "phoneme_seq"}
     with csv_path.open("r", encoding="utf-8", newline="") as fp:
@@ -118,11 +130,17 @@ def load_prompt_phoneme_map(csv_path: Path) -> dict[str, PromptPhonemeMapping]:
             if prompt_id in mapping_by_prompt_id:
                 raise ValueError(f"row {row_index}: duplicate prompt_id '{prompt_id}'")
 
+            phoneme_slug = normalize_slug(raw_slug, fallback=prompt_id)
+            raw_export_group = as_optional_str(row.get("export_group_slug")) or phoneme_slug
             mapping_by_prompt_id[prompt_id] = PromptPhonemeMapping(
                 prompt_id=prompt_id,
                 prompt_text=prompt_text,
                 phoneme_seq=phoneme_seq,
-                phoneme_slug=normalize_slug(raw_slug, fallback=prompt_id),
+                phoneme_slug=phoneme_slug,
+                export_group_slug=normalize_export_group(
+                    raw_export_group,
+                    fallback=phoneme_slug,
+                ),
             )
     return mapping_by_prompt_id
 
@@ -345,6 +363,7 @@ def main() -> int:
                             "prompt_text": "",
                             "phoneme_seq": "",
                             "phoneme_slug": "",
+                            "export_group_slug": "",
                             "raw_path": raw_path,
                             "wav_path_local": "",
                             "status": "failed",
@@ -360,9 +379,13 @@ def main() -> int:
                 )
                 phoneme_seq = mapping_entry.phoneme_seq
                 phoneme_slug = mapping_entry.phoneme_slug
-                wav_dir = wav_root / phoneme_slug
+                export_group_slug = mapping_entry.export_group_slug
+                wav_dir = wav_root / export_group_slug
                 wav_dir.mkdir(parents=True, exist_ok=True)
-                wav_file = wav_dir / f"{phoneme_slug}__{uid_for_filename}__{record_id}.wav"
+                wav_file = (
+                    wav_dir
+                    / f"{export_group_slug}__{prompt_id}__{uid_for_filename}__{record_id}.wav"
+                )
 
                 if wav_file.exists() and not args.overwrite:
                     skipped_count += 1
@@ -375,6 +398,7 @@ def main() -> int:
                             "prompt_text": prompt_text,
                             "phoneme_seq": phoneme_seq,
                             "phoneme_slug": phoneme_slug,
+                            "export_group_slug": export_group_slug,
                             "raw_path": raw_path,
                             "wav_path_local": str(wav_file),
                             "status": "skipped",
@@ -400,6 +424,7 @@ def main() -> int:
                             "prompt_text": prompt_text,
                             "phoneme_seq": phoneme_seq,
                             "phoneme_slug": phoneme_slug,
+                            "export_group_slug": export_group_slug,
                             "raw_path": raw_path,
                             "wav_path_local": str(wav_file),
                             "status": "exported",
@@ -418,6 +443,7 @@ def main() -> int:
                             "prompt_text": prompt_text,
                             "phoneme_seq": phoneme_seq,
                             "phoneme_slug": phoneme_slug,
+                            "export_group_slug": export_group_slug,
                             "raw_path": raw_path,
                             "wav_path_local": str(wav_file),
                             "status": "failed",
@@ -436,6 +462,7 @@ def main() -> int:
                             "prompt_text": prompt_text,
                             "phoneme_seq": phoneme_seq,
                             "phoneme_slug": phoneme_slug,
+                            "export_group_slug": export_group_slug,
                             "raw_path": raw_path,
                             "wav_path_local": str(wav_file),
                             "status": "failed",

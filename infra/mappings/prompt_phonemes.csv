@@ -1,4 +1,4 @@
-prompt_id,prompt_text,phoneme_seq,phoneme_slug
+prompt_id,prompt_text,phoneme_seq,phoneme_slug,export_group_slug
 p-001,あ,a,a
 p-002,い,i,i
 p-003,う,u,u
@@ -103,3 +103,8 @@ p-101,みょ,my o,my_o
 p-102,りゃ,ry a,ry_a
 p-103,りゅ,ry u,ry_u
 p-104,りょ,ry o,ry_o
+p-105,さんま,s a N m a,s_a_N_m_a,N1
+p-106,あんな,a N n a,a_N_n_a,N2
+p-107,はんが,h a N g a,h_a_N_g_a,N3
+p-108,しんよう,sh i N y o u,sh_i_N_y_o_u,N4
+p-109,かばん,k a b a N,k_a_b_a_N,N5

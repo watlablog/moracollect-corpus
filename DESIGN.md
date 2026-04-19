@@ -23,9 +23,11 @@
   - Step9: 累計Top10ランキング（`/v1/leaderboard`）
 - 実装済み要素: Auth / Profile / Recording / Waveform / Upload / Register / My records / My records playback load / Script & Prompt selection / Read-minimized stats fetch / Leaderboard
 - Step7の標準データ:
-  - script: `s-gojuon`（表示名 `50音`）1件
-  - prompts: 104件（清音46 + 濁音/半濁音25 + 拗音33）
-  - 表示順: `order` による固定50音順
+  - scripts: `s-gojuon`（表示名 `50音`）と `s-five-kinds-of-n`（表示名 `5種類の"ん"`）の2件
+  - prompts: 合計109件
+    - `50音`: 104件（清音46 + 濁音/半濁音25 + 拗音33）
+    - `5種類の"ん"`: 5件（`さんま` `あんな` `はんが` `しんよう` `かばん`）
+  - 表示順: `order` による固定順
 - 次アクション: **Step10-A（管理者ローカル一括 raw→wav 変換）**
 
 ---
@@ -679,8 +681,10 @@ flowchart LR
 **実装**
 - 管理者PCで実行する `api/scripts/export_wav_dataset.py` を追加
 - `infra/mappings/prompt_phonemes.csv` を正本として `prompt_id -> pydomino音素列` を解決
+- mapping は `phoneme_slug` に加えて任意の `export_group_slug` を持てる
 - Storage `raw_path` を一括ダウンロードし、`ffmpeg` で `16kHz mono s16 wav` へ変換
-- 出力先: `exports/wav/{phoneme_slug}/{phoneme_slug}__{uid}__{record_id}.wav`
+- 出力先: `exports/wav/{export_group_slug}/{export_group_slug}__{prompt_id}__{uid}__{record_id}.wav`
+- `5種類の"ん"` は `export_group_slug` として `N1` `N2` `N3` `N4` `N5` を使う
 - 結果を `exports/manifests/export_<timestamp>.csv` に記録
 - この段階では Firestore の `status/wav_path/qc` は更新しない
 
@@ -754,7 +758,7 @@ flowchart LR
 ### 12.6 Step10-A 詳細DoD（管理者ローカル一括wavエクスポート）
 - `api/scripts/export_wav_dataset.py` が `--bucket` と `--mapping-csv` で実行できる
 - `--dry-run` でダウンロード/変換なしの対象件数確認ができる
-- 変換成功時に `exports/wav/<phoneme_slug>/<phoneme_slug>__<uid>__<record_id>.wav` が生成される
+- 変換成功時に `exports/wav/<export_group_slug>/<export_group_slug>__<prompt_id>__<uid>__<record_id>.wav` が生成される
 - 実行結果が `exports/manifests/export_<timestamp>.csv` に `exported/skipped/failed` で記録される
 - `prompt_id` 未マップ・raw欠損・ffmpeg失敗が `failed` で継続処理される
 - Firestoreデータは読み取りのみで更新しない

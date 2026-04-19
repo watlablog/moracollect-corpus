@@ -830,5 +830,45 @@
     "type": "mora",
     "order": 1040,
     "is_active": true
+  },
+  {
+    "prompt_id": "p-105",
+    "script_id": "s-five-kinds-of-n",
+    "text": "さんま",
+    "type": "word",
+    "order": 10,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-106",
+    "script_id": "s-five-kinds-of-n",
+    "text": "あんな",
+    "type": "word",
+    "order": 20,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-107",
+    "script_id": "s-five-kinds-of-n",
+    "text": "はんが",
+    "type": "word",
+    "order": 30,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-108",
+    "script_id": "s-five-kinds-of-n",
+    "text": "しんよう",
+    "type": "word",
+    "order": 40,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-109",
+    "script_id": "s-five-kinds-of-n",
+    "text": "かばん",
+    "type": "word",
+    "order": 50,
+    "is_active": true
   }
 ]

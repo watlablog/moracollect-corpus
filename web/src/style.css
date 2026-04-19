@@ -420,6 +420,17 @@ h2 {
   color: #0f766e;
 }
 
+.script-guidance {
+  margin: 0.4rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 10px;
+  background: #ecfeff;
+  border: 1px solid #99f6e4;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: #155e75;
+}
+
 .prompt-status,
 .recording-selected-prompt {
   min-height: 1.35rem;

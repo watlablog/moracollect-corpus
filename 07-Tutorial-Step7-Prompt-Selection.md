@@ -11,7 +11,7 @@
 2. 任意の prompt を選んで録音→Upload→Register できる
 3. prompt ごとに `total_records` と `unique_speakers` が表示される
 4. 登録後に件数表示が更新される
-5. 現在の標準データ（`50音` 1 script + 104 prompts）で運用できる
+5. 現在の標準データ（`50音` + `5種類の"ん"`）で運用できる
 
 今回まだやらないこと:
 
@@ -48,14 +48,14 @@ flowchart LR
 > [!IMPORTANT]
 > **Key Point: script**  
 > prompt をまとめる収録セットです。  
-> 例: 「50音」  
-> 今回は script は1件だけ（`s-gojuon`）で、その中に prompt を複数入れます。
+> 例: 「50音」「5種類の"ん"」  
+> script は複数件持てて、それぞれに対応する prompt 群を持ちます。
 
 > [!IMPORTANT]
 > **Key Point: prompt**  
 > 実際に読む 1 テキストです。  
-> 例: 「あ」「ぎ」「ぢ」「きゃ」
-> script を「50音」にして、prompt で「読み上げる1つの文字」を選びます。
+> 例: 「あ」「ぎ」「きゃ」「さんま」「しんよう」
+> script を選んだ上で、prompt として「読み上げる1つの文字や単語」を選びます。
 
 > [!IMPORTANT]
 > **Key Point: total_records / unique_speakers**  
@@ -109,12 +109,23 @@ seedファイル:
 
 現在のseed仕様:
 
-- script は `s-gojuon` の1件（表示名: `50音`）
-- prompt は 104件
-  - 清音46
-  - 濁音/半濁音25（`だ行` は `ぢ/づ`）
-  - 拗音33
-- UIの表示順は `order` に従う固定50音順
+- script は 2件
+  - `s-gojuon`（表示名: `50音`）
+  - `s-five-kinds-of-n`（表示名: `5種類の"ん"`）
+- prompt は合計109件
+  - `50音`: 104件
+    - 清音46
+    - 濁音/半濁音25（`だ行` は `ぢ/づ`）
+    - 拗音33
+  - `5種類の"ん"`: 5件
+    - `さんま`
+    - `あんな`
+    - `はんが`
+    - `しんよう`
+    - `かばん`
+- UIの表示順は `order` に従う
+  - `50音` は固定50音順グリッド
+  - `5種類の"ん"` は通常の prompt ボタン一覧
 
 投入コマンド:
 
@@ -126,6 +137,7 @@ pip install -r requirements.txt       # 初回のみ
 # ADC未設定の場合のみ:
 # gcloud auth application-default login
 python3 scripts/seed_step7_data.py
+python3 scripts/build_stats_snapshots.py
 deactivate
 ```
 
@@ -190,7 +202,7 @@ deactivate
 
 - 原因: `infra/seeds/prompts.json` の `script_id` と `infra/seeds/scripts.json` が不一致
 - 対処:
-  - prompts 側を `s-gojuon` に揃える
+  - prompts 側を既存 script id（`s-gojuon` または `s-five-kinds-of-n`）に揃える
   - seed を再実行
 
 ### 7-8. prompt件数が増えない / 反映されない
@@ -203,8 +215,9 @@ deactivate
 ### 7-9. 古い script / prompt が残る
 
 - 原因: 以前のseedデータがFirestoreに残っている
-- 対処: 最新の `seed_step7_data.py` を再実行する
-  - このスクリプトは seed に無い `scripts/prompts` を prune（削除）します
+- 対処: 最新の `seed_step7_data.py` を再実行し、その後 `build_stats_snapshots.py` を実行する
+  - `seed_step7_data.py` は seed に無い `scripts/prompts` を prune（削除）します
+  - `build_stats_snapshots.py` は scripts/prompts の snapshot を再生成します
 
 ---
 

@@ -41,14 +41,23 @@ flowchart LR
 
 - 必須: `prompt_id`, `prompt_text`, `phoneme_seq`
 - 任意: `phoneme_slug`
+- 任意: `export_group_slug`
 
 ファイル名規則:
 
-- `<phoneme_slug>__<uid>__<record_id>.wav`
+- `<export_group_slug>__<prompt_id>__<uid>__<record_id>.wav`
 
 保存先:
 
-- `exports/wav/<phoneme_slug>/...`
+- `exports/wav/<export_group_slug>/...`
+
+`5種類の"ん"` の export グループ:
+
+- `N1`: `[m]` 用（今回の prompt は `さんま`）
+- `N2`: `[n]` 用（今回の prompt は `あんな`）
+- `N3`: `[ŋ]` 用（今回の prompt は `はんが`）
+- `N4`: `[ɲ]` 用（今回の prompt は `しんよう`）
+- `N5`: `[ɴ]` 用（今回の prompt は `かばん` の語末）
 
 ---
 
@@ -110,7 +119,7 @@ python3 scripts/export_wav_dataset.py \
 
 ### 5-1. wav出力
 
-- `exports/wav/<phoneme_slug>/<phoneme_slug>__<uid>__<record_id>.wav`
+- `exports/wav/<export_group_slug>/<export_group_slug>__<prompt_id>__<uid>__<record_id>.wav`
 
 ### 5-2. manifest
 
@@ -123,10 +132,12 @@ python3 scripts/export_wav_dataset.py \
 3. `prompt_id`
 4. `prompt_text`
 5. `phoneme_seq`
-6. `raw_path`
-7. `wav_path_local`
-8. `status` (`exported|skipped|failed`)
-9. `error`
+6. `phoneme_slug`
+7. `export_group_slug`
+8. `raw_path`
+9. `wav_path_local`
+10. `status` (`exported|skipped|failed`)
+11. `error`
 
 ---
 
