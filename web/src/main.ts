@@ -64,6 +64,9 @@ const AVATAR_MIME_TYPE = 'image/webp'
 const FIVE_KINDS_OF_N_SCRIPT_ID = 's-five-kinds-of-n'
 const FIVE_KINDS_OF_N_GUIDANCE =
   'このジャンルでは、各語を自然な速さで1回読んでください。「ん」だけを強調せず、単語全体を自然に発話します。'
+const GOJUON_SCRIPT_ID = 's-gojuon'
+const GOJUON_SEION_LAST_ROW_INDEX = 10
+const GOJUON_HEATMAP_FIRST_ROW_INDEX = GOJUON_SEION_LAST_ROW_INDEX + 1
 const GOJUON_PROMPT_GROUP_SIZES = [
   5, 5, 5, 5, 5, 5, 5, 3, 5, 2, 1, 5, 5, 5, 5, 5, 3, 3, 3, 3, 3, 3, 3, 3, 3,
   3, 3,
@@ -1052,6 +1055,42 @@ function buildGojuonPromptRows(prompts: PromptItem[]): Array<Array<PromptItem | 
   return rows
 }
 
+function getGojuonHeatmapMaxRecords(rows: Array<Array<PromptItem | null>>): number {
+  let maxRecords = 0
+  for (
+    let rowIndex = GOJUON_HEATMAP_FIRST_ROW_INDEX;
+    rowIndex < rows.length;
+    rowIndex += 1
+  ) {
+    for (const prompt of rows[rowIndex]) {
+      if (prompt) {
+        maxRecords = Math.max(maxRecords, prompt.total_records)
+      }
+    }
+  }
+  return maxRecords
+}
+
+function getGojuonHeatmapClass(prompt: PromptItem, maxRecords: number): string {
+  const scarcity =
+    maxRecords === 0 ? 1 : 1 - prompt.total_records / maxRecords
+  const normalizedScarcity = clamp(scarcity, 0, 1)
+
+  if (normalizedScarcity >= 0.8) {
+    return 'prompt-button-heatmap-urgent'
+  }
+  if (normalizedScarcity >= 0.6) {
+    return 'prompt-button-heatmap-high'
+  }
+  if (normalizedScarcity >= 0.4) {
+    return 'prompt-button-heatmap-medium'
+  }
+  if (normalizedScarcity >= 0.2) {
+    return 'prompt-button-heatmap-low'
+  }
+  return 'prompt-button-heatmap-filled'
+}
+
 function findSelectedScript(): ScriptItem | null {
   if (!selectedScriptId) {
     return null
@@ -1189,19 +1228,30 @@ function renderPromptButtons(): void {
     return button
   }
 
-  if (selectedScriptId === 's-gojuon') {
+  if (selectedScriptId === GOJUON_SCRIPT_ID) {
     const groupedRows = buildGojuonPromptRows(sortedPrompts)
     if (groupedRows) {
       promptGridEl.classList.add('has-groups')
       const groupsContainer = document.createElement('div')
       groupsContainer.className = 'prompt-groups'
+      const heatmapMaxRecords = getGojuonHeatmapMaxRecords(groupedRows)
 
-      for (const row of groupedRows) {
+      for (let rowIndex = 0; rowIndex < groupedRows.length; rowIndex += 1) {
+        const row = groupedRows[rowIndex]
         const rowContainer = document.createElement('div')
         rowContainer.className = 'prompt-row'
         for (const prompt of row) {
           if (prompt) {
-            rowContainer.append(buildPromptButton(prompt))
+            const button = buildPromptButton(prompt)
+            if (rowIndex <= GOJUON_SEION_LAST_ROW_INDEX) {
+              button.classList.add('prompt-button-gojuon-seion')
+            } else {
+              button.classList.add(
+                'prompt-button-gojuon-heatmap',
+                getGojuonHeatmapClass(prompt, heatmapMaxRecords),
+              )
+            }
+            rowContainer.append(button)
           } else {
             const emptyCell = document.createElement('div')
             emptyCell.className = 'prompt-cell-empty'

@@ -504,6 +504,88 @@ h2 {
   background: #1e40af;
 }
 
+.prompt-button.prompt-button-gojuon-seion {
+  border-color: #cbd5e1;
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.prompt-button.prompt-button-gojuon-seion:hover:not(:disabled) {
+  border-color: #94a3b8;
+  background: #e2e8f0;
+}
+
+.prompt-button.prompt-button-gojuon-seion .prompt-button-meta {
+  color: #64748b;
+}
+
+.prompt-button.prompt-button-gojuon-heatmap {
+  border-color: var(--prompt-heatmap-border);
+  background: var(--prompt-heatmap-bg);
+  color: var(--prompt-heatmap-fg);
+}
+
+.prompt-button.prompt-button-gojuon-heatmap:hover:not(:disabled) {
+  border-color: var(--prompt-heatmap-hover-border);
+  background: var(--prompt-heatmap-hover-bg);
+}
+
+.prompt-button.prompt-button-gojuon-heatmap .prompt-button-meta {
+  color: var(--prompt-heatmap-meta);
+}
+
+.prompt-button.prompt-button-gojuon-seion.selected,
+.prompt-button.prompt-button-gojuon-heatmap.selected {
+  outline: 2px solid #1d4ed8;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+}
+
+.prompt-button-heatmap-urgent {
+  --prompt-heatmap-bg: #991b1b;
+  --prompt-heatmap-border: #7f1d1d;
+  --prompt-heatmap-hover-bg: #7f1d1d;
+  --prompt-heatmap-hover-border: #7f1d1d;
+  --prompt-heatmap-fg: #ffffff;
+  --prompt-heatmap-meta: #fee2e2;
+}
+
+.prompt-button-heatmap-high {
+  --prompt-heatmap-bg: #dc2626;
+  --prompt-heatmap-border: #b91c1c;
+  --prompt-heatmap-hover-bg: #b91c1c;
+  --prompt-heatmap-hover-border: #991b1b;
+  --prompt-heatmap-fg: #ffffff;
+  --prompt-heatmap-meta: #fee2e2;
+}
+
+.prompt-button-heatmap-medium {
+  --prompt-heatmap-bg: #f87171;
+  --prompt-heatmap-border: #ef4444;
+  --prompt-heatmap-hover-bg: #ef4444;
+  --prompt-heatmap-hover-border: #dc2626;
+  --prompt-heatmap-fg: #7f1d1d;
+  --prompt-heatmap-meta: #7f1d1d;
+}
+
+.prompt-button-heatmap-low {
+  --prompt-heatmap-bg: #fecaca;
+  --prompt-heatmap-border: #fca5a5;
+  --prompt-heatmap-hover-bg: #fca5a5;
+  --prompt-heatmap-hover-border: #f87171;
+  --prompt-heatmap-fg: #7f1d1d;
+  --prompt-heatmap-meta: #991b1b;
+}
+
+.prompt-button-heatmap-filled {
+  --prompt-heatmap-bg: #fff1f2;
+  --prompt-heatmap-border: #fecdd3;
+  --prompt-heatmap-hover-bg: #ffe4e6;
+  --prompt-heatmap-hover-border: #fda4af;
+  --prompt-heatmap-fg: #475569;
+  --prompt-heatmap-meta: #64748b;
+}
+
 .prompt-button-text {
   display: block;
   font-weight: 600;
