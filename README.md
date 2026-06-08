@@ -460,9 +460,10 @@ deactivate
 ### 10-4. Web behavior
 
 - Signed-in user selects script from dropdown
-- Current seed includes:
+- Current seed includes 3 scripts / 124 prompts:
   - `50音` (`s-gojuon`) with 104 prompts in fixed gojuon order
   - `5種類の"ん"` (`s-five-kinds-of-n`) with 5 word prompts
+  - `無声化母音` (`s-vowel-devoicing`) with 15 word prompts
 - Prompt buttons are shown in grid (fixed gojuon order by `order`)
 - User chooses any prompt and records/uploads
 - Upload button is enabled only when:
@@ -473,6 +474,7 @@ deactivate
 - Current default seed:
   - `50音`: 104 items (46 clear + 25 voiced/semi-voiced + 33 contracted sounds)
   - `5種類の"ん"`: `さんま`, `あんな`, `はんが`, `しんよう`, `かばん`
+  - `無声化母音`: `北九州（きたきゅうしゅう）`, `キタキツネ`, `靴下（くつした）`, `学生（がくせい）`, `明日（あした）`, `ししゃも`, `寿司（すし）`, `月（つき）`, `続き（つづき）`, `町（まち）`, `こんにちは`, `光（ひかり）`, `人（ひと）`, `普通（ふつう）`, `服（ふく）`
 
 ### 10-5. Deploy order
 
@@ -644,6 +646,8 @@ Mapping CSV columns:
 - `N3`: `[ŋ]` class (`はんが`)
 - `N4`: `[ɲ]` class (`しんよう`)
 - `N5`: `[ɴ]` class (`かばん` word-final)
+
+`無声化母音` omits `export_group_slug`; exports are grouped per prompt by the generated `phoneme_slug`.
 
 ### 13-3. Prepare environment
 

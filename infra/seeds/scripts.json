@@ -12,5 +12,12 @@
     "description": "「ん」の5種を集める単語セット。各語を自然に1回読む。",
     "order": 20,
     "is_active": true
+  },
+  {
+    "script_id": "s-vowel-devoicing",
+    "title": "無声化母音",
+    "description": "無声化しやすい母音を含む語の収録セット。各語を自然に1回読む。",
+    "order": 30,
+    "is_active": true
   }
 ]

@@ -43,6 +43,12 @@ flowchart LR
 - 任意: `phoneme_slug`
 - 任意: `export_group_slug`
 
+現在の mapping 対象は 3 genres / 124 prompts です。
+
+- `50音`: 104 prompts
+- `5種類の"ん"`: 5 prompts
+- `無声化母音`: 15 prompts
+
 ファイル名規則:
 
 - `<export_group_slug>__<prompt_id>__<uid>__<record_id>.wav`
@@ -58,6 +64,8 @@ flowchart LR
 - `N3`: `[ŋ]` 用（今回の prompt は `はんが`）
 - `N4`: `[ɲ]` 用（今回の prompt は `しんよう`）
 - `N5`: `[ɴ]` 用（今回の prompt は `かばん` の語末）
+
+`無声化母音` は `export_group_slug` を省略し、各 prompt の `phoneme_slug` ごとに単語別で export します。
 
 ---
 

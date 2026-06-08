@@ -870,5 +870,125 @@
     "type": "word",
     "order": 50,
     "is_active": true
+  },
+  {
+    "prompt_id": "p-110",
+    "script_id": "s-vowel-devoicing",
+    "text": "北九州（きたきゅうしゅう）",
+    "type": "word",
+    "order": 10,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-111",
+    "script_id": "s-vowel-devoicing",
+    "text": "キタキツネ",
+    "type": "word",
+    "order": 20,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-112",
+    "script_id": "s-vowel-devoicing",
+    "text": "靴下（くつした）",
+    "type": "word",
+    "order": 30,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-113",
+    "script_id": "s-vowel-devoicing",
+    "text": "学生（がくせい）",
+    "type": "word",
+    "order": 40,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-114",
+    "script_id": "s-vowel-devoicing",
+    "text": "明日（あした）",
+    "type": "word",
+    "order": 50,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-115",
+    "script_id": "s-vowel-devoicing",
+    "text": "ししゃも",
+    "type": "word",
+    "order": 60,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-116",
+    "script_id": "s-vowel-devoicing",
+    "text": "寿司（すし）",
+    "type": "word",
+    "order": 70,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-117",
+    "script_id": "s-vowel-devoicing",
+    "text": "月（つき）",
+    "type": "word",
+    "order": 80,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-118",
+    "script_id": "s-vowel-devoicing",
+    "text": "続き（つづき）",
+    "type": "word",
+    "order": 90,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-119",
+    "script_id": "s-vowel-devoicing",
+    "text": "町（まち）",
+    "type": "word",
+    "order": 100,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-120",
+    "script_id": "s-vowel-devoicing",
+    "text": "こんにちは",
+    "type": "word",
+    "order": 110,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-121",
+    "script_id": "s-vowel-devoicing",
+    "text": "光（ひかり）",
+    "type": "word",
+    "order": 120,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-122",
+    "script_id": "s-vowel-devoicing",
+    "text": "人（ひと）",
+    "type": "word",
+    "order": 130,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-123",
+    "script_id": "s-vowel-devoicing",
+    "text": "普通（ふつう）",
+    "type": "word",
+    "order": 140,
+    "is_active": true
+  },
+  {
+    "prompt_id": "p-124",
+    "script_id": "s-vowel-devoicing",
+    "text": "服（ふく）",
+    "type": "word",
+    "order": 150,
+    "is_active": true
   }
 ]

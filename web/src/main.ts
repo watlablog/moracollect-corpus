@@ -64,6 +64,9 @@ const AVATAR_MIME_TYPE = 'image/webp'
 const FIVE_KINDS_OF_N_SCRIPT_ID = 's-five-kinds-of-n'
 const FIVE_KINDS_OF_N_GUIDANCE =
   'このジャンルでは、各語を自然な速さで1回読んでください。「ん」だけを強調せず、単語全体を自然に発話します。'
+const VOWEL_DEVOICING_SCRIPT_ID = 's-vowel-devoicing'
+const VOWEL_DEVOICING_GUIDANCE =
+  'このジャンルでは、各語を自然な速さで1回読んでください。括弧内のかなは読み確認用です。'
 const GOJUON_SCRIPT_ID = 's-gojuon'
 const GOJUON_SEION_LAST_ROW_INDEX = 10
 const GOJUON_HEATMAP_FIRST_ROW_INDEX = GOJUON_SEION_LAST_ROW_INDEX + 1
@@ -1126,8 +1129,12 @@ function updateSelectedPromptLabel(): void {
 }
 
 function updateScriptGuidance(scriptId: string | null): void {
-  const guidance =
-    scriptId === FIVE_KINDS_OF_N_SCRIPT_ID ? FIVE_KINDS_OF_N_GUIDANCE : null
+  let guidance: string | null = null
+  if (scriptId === FIVE_KINDS_OF_N_SCRIPT_ID) {
+    guidance = FIVE_KINDS_OF_N_GUIDANCE
+  } else if (scriptId === VOWEL_DEVOICING_SCRIPT_ID) {
+    guidance = VOWEL_DEVOICING_GUIDANCE
+  }
 
   for (const element of [promptScriptGuidanceEl, recordingScriptGuidanceEl]) {
     if (guidance) {
