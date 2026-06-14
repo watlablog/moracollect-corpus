@@ -59,10 +59,17 @@ python3 scripts/export_wav_dataset.py \
   --bucket moracollect-watlab.firebasestorage.app \
   --mapping-csv ../infra/mappings/prompt_phonemes.csv \
   --out-dir ../exports
+
+python3 scripts/export_wav_dataset.py \
+  --bucket moracollect-watlab.firebasestorage.app \
+  --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --script-id s-vowel-devoicing \
+  --out-dir ../exports
 ```
 
 `prompt_phonemes.csv` can optionally set `export_group_slug`.
 For `5種類の"ん"`, use `N1` to `N5` so exports land under `exports/wav/N1` ... `exports/wav/N5`.
+For `無声化母音`, omit `export_group_slug`; exports land under per-prompt `phoneme_slug` directories.
 
 ## Deploy to Cloud Run
 

@@ -111,6 +111,17 @@ python3 scripts/export_wav_dataset.py \
 - `total`（対象件数）
 - `missing_mapping`（未マップ件数）
 
+`無声化母音` だけを確認する場合:
+
+```bash
+cd api
+python3 scripts/export_wav_dataset.py \
+  --bucket moracollect-watlab.firebasestorage.app \
+  --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --script-id s-vowel-devoicing \
+  --dry-run
+```
+
 ### 4-2. 本実行
 
 ```bash
@@ -118,6 +129,17 @@ cd api
 python3 scripts/export_wav_dataset.py \
   --bucket moracollect-watlab.firebasestorage.app \
   --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --out-dir ../exports
+```
+
+`無声化母音` だけを export する場合:
+
+```bash
+cd api
+python3 scripts/export_wav_dataset.py \
+  --bucket moracollect-watlab.firebasestorage.app \
+  --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --script-id s-vowel-devoicing \
   --out-dir ../exports
 ```
 

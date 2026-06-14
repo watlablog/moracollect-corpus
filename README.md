@@ -680,6 +680,17 @@ python3 scripts/export_wav_dataset.py \
   --dry-run
 ```
 
+Dry run for `無声化母音` only:
+
+```bash
+cd api
+python3 scripts/export_wav_dataset.py \
+  --bucket moracollect-watlab.firebasestorage.app \
+  --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --script-id s-vowel-devoicing \
+  --dry-run
+```
+
 ### 13-5. Full export
 
 ```bash
@@ -687,6 +698,17 @@ cd api
 python3 scripts/export_wav_dataset.py \
   --bucket moracollect-watlab.firebasestorage.app \
   --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --out-dir ../exports
+```
+
+Full export for `無声化母音` only:
+
+```bash
+cd api
+python3 scripts/export_wav_dataset.py \
+  --bucket moracollect-watlab.firebasestorage.app \
+  --mapping-csv ../infra/mappings/prompt_phonemes.csv \
+  --script-id s-vowel-devoicing \
   --out-dir ../exports
 ```
 
